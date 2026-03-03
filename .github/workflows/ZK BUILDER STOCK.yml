@@ -1,0 +1,151 @@
+name: ZK BUILDER STOCK
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      URL:
+        description: "OTA ROM URL"
+        required: true
+      URL2:
+        description: "FASTBOOT ROM URL"
+      BASE:
+        description: "ZKOS CN OR MI ?"
+        default: 'CN'
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6.0.2
+
+      - name: Check free disk space
+        id: diskcheck
+        run: |
+          FREE_GB=$(df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}')
+          echo "Free disk space: ${FREE_GB}GB"
+          if [ "$FREE_GB" -lt 50 ]; then
+            echo "need_cleanup=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_cleanup=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Maximize build disk space
+        if: steps.diskcheck.outputs.need_cleanup == 'true'
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-cached-tools: 'true'
+
+      - name: Setup build environment
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          sudo timedatectl set-timezone UTC
+          sudo apt-get update > /dev/null 2>&1
+          sudo apt-get install -y python3 python-is-python3 python3-pip p7zip-full openjdk-17-jdk-headless openssh-client aria2 zip > /dev/null 2>&1
+          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          DATE=$(TZ=UTC date +"%y%m%d")
+          ROM_URL="${{ github.event.inputs.URL }}"
+          ROM_NAME="$(basename "${ROM_URL%%\?*}")"
+          if [[ "$ROM_NAME" == *"-OS"* ]]; then
+            if [[ "$ROM_NAME" =~ ^([a-z0-9]+)-ota_full-(OS[0-9.]+)\.([A-Z0-9]+)-user-([0-9.]+)-.*\.zip$ ]]; then
+              DEVICE_RAW="${BASH_REMATCH[1]}"
+              DEVICE="${DEVICE_RAW^^}"
+              OS_VER="${BASH_REMATCH[2]}"
+              REGION="${BASH_REMATCH[3]}"
+              ANDROID="${BASH_REMATCH[4]}"
+              ROM_VER="${OS_VER%%.*}"
+            else
+              export ZK_NAME="ZKOS_${DATE}"
+            fi
+            export ZK_NAME="ZKOS_${DEVICE}_${OS_VER}.${REGION}_${ANDROID}_${DATE}"
+          else
+            echo "Unable to set ZK ROM name"
+            exit 1
+          fi
+          echo "ZK_NAME=$ZK_NAME" >> $GITHUB_ENV
+          echo "DEVICE=$DEVICE" >> $GITHUB_ENV
+          echo "$ZK_NAME"
+
+      - name: Download ROM files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p "$GITHUB_WORKSPACE/ROM" && cd "$GITHUB_WORKSPACE/ROM"
+          timeout 9000 aria2c -s16 -x16 -j$(nproc) -c -U "Mozilla/5.0" \
+          -o "${ZK_NAME}.zip" "${{ github.event.inputs.URL }}" || exit 1
+          super_json="super_size.json"
+          aria2c -o $super_json https://github.com/zuri1503/ZK_BUILDER/releases/latest/download/super_size.json
+          if jq -e --arg m "$DEVICE" '.[$m]' "$super_json" >/dev/null; then
+            echo "Use super size from super_size.json"
+            super_size=$(jq -r --arg m "$DEVICE" '.[$m].super_size' "$super_json")
+          else
+            if [ -n "${{ github.event.inputs.URL2 }}" ]; then
+              timeout 9000 aria2c -s16 -x16 -j$(nproc) -c -U "Mozilla/5.0" \
+              -o "FASTBOOT.tgz" "${{ github.event.inputs.URL2 }}" || exit 1
+              mkdir -p "FASTBOOT" && tar -xzf "FASTBOOT.tgz" -C "FASTBOOT" > /dev/null 2>&1 && rm -rf "FASTBOOT.tgz"
+              simg2img FASTBOOT/*/images/super.img "FASTBOOT/super.img"
+              super_size=$(stat -c %s "FASTBOOT/super.img") && rm -rf FASTBOOT
+            fi
+            if ! jq -e --arg m "$DEVICE" '.[$m]' "$super_json" >/dev/null; then
+              rm -rf $super_json && aria2c -o $super_json \
+              https://github.com/zuri1503/ZK_BUILDER/releases/latest/download/super_size.json
+              jq --arg m "$DEVICE" --argjson s "$super_size" '. + {($m): {super_size: $s}}' \
+              "${super_json:-/dev/null}" 2>/dev/null > tmp.json && mv tmp.json "$super_json"
+              gh release upload super-size super_size.json --clobber
+              echo "Added $DEVICE to super_size.json"
+            fi
+          fi
+          echo "Super partition size is: $super_size"
+          echo "SUPER_SIZE=$super_size" >> $GITHUB_ENV
+
+      - name: Clone ZK AUTO BUILD sources
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          export ZK_HOME="/home/runner/work/ZK_AUTO_BUILD/ZK_AUTO_BUILD"
+          echo "ZK_HOME=$ZK_HOME" >> $GITHUB_ENV
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRIVATE_REPO_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          if [ "${{ github.event.inputs.BASE }}" = "CN" ]; then
+            git clone -b cn --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+          elif [ "${{ github.event.inputs.BASE }}" = "MI" ]; then
+            git clone -b mi --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+          else
+            echo "Unable to get ZKOS BASE"
+          fi
+          mkdir -p "$ZK_HOME/ROM"
+          mv -f "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" "$ZK_HOME/ROM/${ZK_NAME}.zip"
+          sudo chmod -R +x "$ZK_HOME"
+
+      - name: Build ProjectZK ROM
+        run: |
+          cd "$ZK_HOME"
+          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" "$SUPER_SIZE"
+
+      - name: Upload ROM to Clouds
+        run: |
+          cd "$ZK_HOME/tools"
+          sudo chmod 0600 key && sudo chmod 0644 token.pickle
+          if [ "${{ github.event.inputs.BASE }}" = "CN" ]; then
+            rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
+            "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-CN/" > /dev/null 2>&1 || exit 1
+            python upload.py "1PosY7KpdfuAquJjGDMpYSgYUNNKNLTyf" "$ROM_OUTPUT"
+          elif [ "${{ github.event.inputs.BASE }}" = "MI" ]; then
+            rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
+            "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-MI/" > /dev/null 2>&1 || exit 1
+            python upload.py "1R_Jea3FWErH_9U1jeOGLv9nmIzJBQXUz" "$ROM_OUTPUT"
+          fi
+          echo "Uploaded $ZK_NAME"
+          sudo rm -rf "$ZK_HOME"

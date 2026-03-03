@@ -1,0 +1,209 @@
+name: ZK BUILDER
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      URL:
+        description: "XIAOMI.EU ROM URL"
+        required: true
+      URL2:
+        description: "OTA URL FOR VBMETA"
+      CPATCH:
+        description: "CORE PATCH"
+        type: boolean
+        default: 'true'
+      PDU:
+        description: "PIXELDRAIN UPLOADER"
+        type: boolean
+        default: 'false'
+      EXT4:
+        description: "FORCE EXT4"
+        type: boolean
+        default: 'false'
+      DECRYPT:
+        description: "DECRYPT DATA"
+        type: boolean
+        default: 'false'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6.0.2
+
+      - name: Check free disk space
+        id: diskcheck
+        run: |
+          FREE_GB=$(df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}')
+          echo "Free disk space: ${FREE_GB}GB"
+          if [ "$FREE_GB" -lt 50 ]; then
+            echo "need_cleanup=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_cleanup=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Maximize build disk space
+        if: steps.diskcheck.outputs.need_cleanup == 'true'
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-cached-tools: 'true'
+
+      - name: Setup build environment
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          sudo timedatectl set-timezone UTC
+          sudo apt-get update > /dev/null 2>&1
+          sudo apt-get install -y python3 python-is-python3 python3-pip p7zip-full openjdk-17-jdk-headless openssh-client aria2 zip > /dev/null 2>&1
+          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          DATE=$(TZ=UTC date +"%y%m%d")
+          ROM_URL="${{ github.event.inputs.URL }}"
+          echo "ROM_URL=$ROM_URL" >> $GITHUB_ENV
+          if echo "$ROM_URL" | grep -q "drive.google.com"; then
+            sudo apt-get install -y python3-pip > /dev/null 2>&1
+            pip3 install gdown > /dev/null 2>&1
+            export ZK_NAME="ZK_XIAOMI_${DATE}"
+          else
+            ROM_NAME="$(basename "${ROM_URL%/download}")"
+            if [[ "$ROM_NAME" == *_OS* ]]; then
+              if [[ "$ROM_NAME" =~ ^xiaomi\.eu_([^_]+)_(OS[0-9.]+)\.([A-Z0-9]+)_([0-9]+)\.zip$ ]]; then
+                DEVICE_RAW="${BASH_REMATCH[1]}"
+                DEVICE="${DEVICE_RAW^^}"
+                OS_VER="${BASH_REMATCH[2]}"
+                REGION="${BASH_REMATCH[3]}"
+                export ZK_NAME="ZKOS_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+              else
+                export ZK_NAME="ZKOS_XIAOMI_${DATE}"
+              fi
+            elif [[ "$ROM_NAME" == *_V14* ]]; then
+              if [[ "$ROM_NAME" =~ ^xiaomi\.eu_multi_([A-Za-z0-9]+(_[A-Za-z0-9]+)?)_(V14\.[0-9.]+)\.([A-Z0-9]+)_v14-([0-9]+)\.zip$ ]]; then
+                DEVICE_RAW="${BASH_REMATCH[1]}"
+                DEVICE="${DEVICE_RAW^^}"
+                OS_VER="${BASH_REMATCH[3]}"
+                REGION="${BASH_REMATCH[4]}"
+                export ZK_NAME="ZKUI_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+              else
+                export ZK_NAME="ZKUI_XIAOMI_${DATE}"
+              fi
+            else
+              echo "Unable to set ZK ROM name"
+              exit 1
+            fi
+            echo "$ZK_NAME"
+            echo "DEVICE=$DEVICE" >> $GITHUB_ENV
+          fi
+          echo "ZK_NAME=$ZK_NAME" >> $GITHUB_ENV
+
+      - name: Download ROM files
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p "$GITHUB_WORKSPACE/ROM" && cd "$GITHUB_WORKSPACE/ROM"
+          if [[ "$ZK_NAME" == *_V14* ]] && [ -n "${{ github.event.inputs.URL2 }}" ]; then
+            sudo apt-get install -y pipx > /dev/null 2>&1
+            pipx install git+https://github.com/5ec1cff/payload-dumper > /dev/null 2>&1
+            payload_dumper --out "$GITHUB_WORKSPACE/ROM/AVB_PATCH" --partitions \
+            "vendor_boot,vbmeta,vbmeta_system,vbmeta_vendor" "https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/""${{ github.event.inputs.URL2 }}"
+            [ ! -f "$GITHUB_WORKSPACE/ROM/AVB_PATCH/vendor_boot.img" ] && \
+            rm -rf "$GITHUB_WORKSPACE/ROM/AVB_PATCH"
+          fi
+          if echo "$ROM_URL" | grep -q "drive.google.com"; then
+            gdown --fuzzy -O "${ZK_NAME}.zip" "$ROM_URL" || exit 1
+          else
+            tmp="${ROM_URL#https://sourceforge.net/projects/}"
+            project="${tmp%%/*}"
+            path="${tmp#*/files/}"
+            path="${path%/download}"
+            mirrors=(jaist twds nchc phoenixnap cfhcable versaweb pilotfiber netix)
+            best=""
+            best_time=999
+            for i in "${mirrors[@]}"; do
+              test="https://${i}.dl.sourceforge.net/project/${project}/${path}?viasf=1"
+              t=$(curl -r 0-0 -o /dev/null -s -w "%{time_total}" \
+              --connect-timeout 5 --max-time 10 "$test") || continue
+              [[ -z "$t" ]] && continue
+              if (( $(echo "$t >= 10" | bc -l) )); then
+                continue
+              fi
+              if (( $(echo "$t < $best_time" | bc -l) )); then
+                best="$i"
+                best_time="$t"
+              fi
+            done
+            [[ -z "$best" ]] && best="cfhcable"
+            FINAL_URL="https://${best}.dl.sourceforge.net/project/${project}/${path}?viasf=1"
+            echo "LINK: $FINAL_URL"
+            cd "$GITHUB_WORKSPACE/ROM" && timeout 9000 aria2c $FINAL_URL -o ${ZK_NAME}.zip || exit 1
+          fi
+
+      - name: Clone ZK AUTO BUILD sources
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          export ZK_HOME="/home/runner/work/ZK_AUTO_BUILD/ZK_AUTO_BUILD"
+          echo "ZK_HOME=$ZK_HOME" >> $GITHUB_ENV
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRIVATE_REPO_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git clone -b eu --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+          mv -f "$GITHUB_WORKSPACE/ROM" "$ZK_HOME/ROM"
+          ls "$ZK_HOME/ROM"
+          sudo chmod -R +x "$ZK_HOME"
+
+      - name: Build ProjectZK ROM
+        run: |
+          cd "$ZK_HOME"
+          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" \
+          "${{ github.event.inputs.EXT4 }}" "${{ github.event.inputs.DECRYPT }}" "${{ github.event.inputs.CPATCH }}"
+
+      - name: Update super size database
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if [ -n "$SUPER_SIZE" ] && [ -n "$DEVICE" ]; then
+            super_json="super_size.json"
+            aria2c -o $super_json https://github.com/zuri1503/ZK_BUILDER/releases/latest/download/super_size.json > /dev/null 2>&1
+            if ! jq -e --arg m "$DEVICE" '.[$m]' "$super_json" >/dev/null; then
+              jq --arg m "$DEVICE" --argjson s "$SUPER_SIZE" '. + {($m): {super_size: $s}}' \
+              "${super_json:-/dev/null}" 2>/dev/null > tmp.json && mv tmp.json "$super_json"
+              gh release upload super-size super_size.json --clobber
+              echo "Added $DEVICE to super_size.json"
+            fi
+            echo "Super partition size is: $SUPER_SIZE"
+          fi
+
+      - name: Upload ROM to Clouds
+        run: |
+          cd "$ZK_HOME/tools"
+          if [ "${{ github.event.inputs.PDU }}" = "true" ]; then
+            curl -T "$ROM_OUTPUT" -u :"${{ secrets.PIXELDRAIN_API_KEY }}" \
+            "https://pixeldrain.com/api/file/" > /dev/null 2>&1
+          fi
+          upload_sf_file() {
+            local ROM_OUTPUT="$1"
+            local ZK_PATH="$2"
+            sudo chmod 0600 key
+            rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
+            "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-EU/$ZK_PATH/" > /dev/null 2>&1 || exit 1
+            echo "Uploaded $1 to Sourceforge"
+          }
+          if [ "$ROM_VER" = "V14" ]; then
+            upload_sf_file "$ROM_OUTPUT" "ZKUI14.0"
+            python upload.py 1a2O_DmmxH6o4szRJaBQjSfYXjYvdlRUO "$ROM_OUTPUT" || exit 1
+          elif [ "$ROM_VER" = "OS2" ]; then
+            upload_sf_file "$ROM_OUTPUT" "ZKOS2.2"
+            python upload.py 1KV-VovIo3NgZlGNLM0Aj2RwmT3q4mTfy "$ROM_OUTPUT" || exit 1
+          elif [ "$ROM_VER" = "OS3" ] || [ "$ROM_VER" = "OS3_A15" ]; then
+            upload_sf_file "$ROM_OUTPUT" "ZKOS3.0"
+            python upload.py 1fFNVQDoS4qnOIZP1xyoAiPYGUK2lUUNu "$ROM_OUTPUT" || exit 1
+          fi
+          sudo rm -rf "$GITHUB_WORKSPACE"/* "$ZK_HOME"/*
