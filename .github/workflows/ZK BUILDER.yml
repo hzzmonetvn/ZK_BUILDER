@@ -11,20 +11,12 @@ on:
         required: true
       URL2:
         description: "OTA URL FOR VBMETA"
-      CPATCH:
-        description: "CORE PATCH"
-        type: boolean
-        default: 'true'
       PDU:
         description: "PIXELDRAIN UPLOADER"
         type: boolean
         default: 'false'
       EXT4:
         description: "FORCE EXT4"
-        type: boolean
-        default: 'false'
-      DECRYPT:
-        description: "DECRYPT DATA"
         type: boolean
         default: 'false'
 
@@ -161,8 +153,7 @@ jobs:
       - name: Build ProjectZK ROM
         run: |
           cd "$ZK_HOME"
-          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" \
-          "${{ github.event.inputs.EXT4 }}" "${{ github.event.inputs.DECRYPT }}" "${{ github.event.inputs.CPATCH }}"
+          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" "${{ github.event.inputs.EXT4 }}"
 
       - name: Update super size database
         env:
