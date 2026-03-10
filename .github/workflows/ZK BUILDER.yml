@@ -11,10 +11,10 @@ on:
         required: true
       URL2:
         description: "OTA URL FOR VBMETA"
-      PDU:
-        description: "PIXELDRAIN UPLOADER"
+      SFU:
+        description: "SF UPLOADER"
         type: boolean
-        default: 'false'
+        default: 'true'
       EXT4:
         description: "FORCE EXT4"
         type: boolean
@@ -175,17 +175,15 @@ jobs:
       - name: Upload ROM to Clouds
         run: |
           cd "$ZK_HOME/tools"
-          if [ "${{ github.event.inputs.PDU }}" = "true" ]; then
-            curl -T "$ROM_OUTPUT" -u :"${{ secrets.PIXELDRAIN_API_KEY }}" \
-            "https://pixeldrain.com/api/file/" > /dev/null 2>&1
-          fi
           upload_sf_file() {
             local ROM_OUTPUT="$1"
             local ZK_PATH="$2"
             sudo chmod 0600 key
-            rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
-            "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-EU/$ZK_PATH/" > /dev/null 2>&1 || exit 1
-            echo "Uploaded $1 to Sourceforge"
+            if [ "${{ github.event.inputs.SFU }}" = "true" ]; then
+              rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
+              "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-EU/$ZK_PATH/" > /dev/null 2>&1 || exit 1
+              echo "Uploaded $1 to Sourceforge"
+            fi
           }
           if [ "$ROM_VER" = "V14" ]; then
             upload_sf_file "$ROM_OUTPUT" "ZKUI14.0"
