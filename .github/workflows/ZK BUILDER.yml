@@ -9,12 +9,14 @@ on:
       URL:
         description: "XIAOMI.EU ROM URL"
         required: true
-      URL2:
-        description: "OTA URL FOR VBMETA"
       SFU:
         description: "SF UPLOADER"
         type: boolean
         default: 'true'
+      PRIVATE:
+        description: "PRIVATE BUILD"
+        type: boolean
+        default: 'false'
       EXT4:
         description: "FORCE EXT4"
         type: boolean
@@ -56,7 +58,7 @@ jobs:
           sudo timedatectl set-timezone UTC
           sudo apt-get update > /dev/null 2>&1
           sudo apt-get install -y python3 python-is-python3 python3-pip p7zip-full openjdk-17-jdk-headless openssh-client aria2 zip > /dev/null 2>&1
-          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib > /dev/null 2>&1
           DATE=$(TZ=UTC date +"%y%m%d")
           ROM_URL="${{ github.event.inputs.URL }}"
           echo "ROM_URL=$ROM_URL" >> $GITHUB_ENV
@@ -99,14 +101,6 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE"
           mkdir -p "$GITHUB_WORKSPACE/ROM" && cd "$GITHUB_WORKSPACE/ROM"
-          if [[ "$ZK_NAME" == *_V14* ]] && [ -n "${{ github.event.inputs.URL2 }}" ]; then
-            sudo apt-get install -y pipx > /dev/null 2>&1
-            pipx install git+https://github.com/5ec1cff/payload-dumper > /dev/null 2>&1
-            payload_dumper --out "$GITHUB_WORKSPACE/ROM/AVB_PATCH" --partitions \
-            "vendor_boot,vbmeta,vbmeta_system,vbmeta_vendor" "https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/""${{ github.event.inputs.URL2 }}"
-            [ ! -f "$GITHUB_WORKSPACE/ROM/AVB_PATCH/vendor_boot.img" ] && \
-            rm -rf "$GITHUB_WORKSPACE/ROM/AVB_PATCH"
-          fi
           if echo "$ROM_URL" | grep -q "drive.google.com"; then
             gdown --fuzzy -O "${ZK_NAME}.zip" "$ROM_URL" || exit 1
           else
@@ -153,7 +147,8 @@ jobs:
       - name: Build ProjectZK ROM
         run: |
           cd "$ZK_HOME"
-          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" "${{ github.event.inputs.EXT4 }}"
+          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" \
+          "${{ github.event.inputs.EXT4 }}" "${{ github.event.inputs.PRIVATE }}"
 
       - name: Update super size database
         env:
@@ -185,6 +180,11 @@ jobs:
               echo "Uploaded $1 to Sourceforge"
             fi
           }
+          if [ "${{ github.event.inputs.PRIVATE }}" = "true" ]; then
+            for i in "$ZK_HOME"/vendor_boot*.img; do
+              python upload.py 1xHbU2pheeT0LQvEfa42Gf7EjY35Bfzw4 "$i" > /dev/null 2>&1
+            done
+          fi
           if [ "$ROM_VER" = "V14" ]; then
             upload_sf_file "$ROM_OUTPUT" "ZKUI14.0"
             python upload.py 1a2O_DmmxH6o4szRJaBQjSfYXjYvdlRUO "$ROM_OUTPUT" || exit 1
