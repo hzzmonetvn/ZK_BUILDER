@@ -11,10 +11,6 @@ on:
         required: true
       URL2:
         description: "FASTBOOT ROM URL"
-      BASE:
-        description: "ZKOS CN OR MI ?"
-        default: 'CN'
-        required: true
 
 jobs:
   build:
@@ -52,7 +48,7 @@ jobs:
           sudo timedatectl set-timezone UTC
           sudo apt-get update > /dev/null 2>&1
           sudo apt-get install -y python3 python-is-python3 python3-pip p7zip-full openjdk-17-jdk-headless openssh-client aria2 zip > /dev/null 2>&1
-          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib > /dev/null 2>&1
           DATE=$(TZ=UTC date +"%y%m%d")
           ROM_URL="${{ github.event.inputs.URL }}"
           ROM_NAME="$(basename "${ROM_URL%%\?*}")"
@@ -118,12 +114,8 @@ jobs:
           echo "${{ secrets.PRIVATE_REPO_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-          if [ "${{ github.event.inputs.BASE }}" = "CN" ]; then
-            git clone -b cn --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
-          elif [ "${{ github.event.inputs.BASE }}" = "MI" ]; then
-            git clone -b mi --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
-          else
-            echo "Unable to get ZKOS BASE"
+          git clone -b cn --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+          echo "Unable to get ZKOS BASE"
           fi
           mkdir -p "$ZK_HOME/ROM"
           mv -f "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" "$ZK_HOME/ROM/${ZK_NAME}.zip"
@@ -138,14 +130,7 @@ jobs:
         run: |
           cd "$ZK_HOME/tools"
           sudo chmod 0600 key && sudo chmod 0644 token.pickle
-          if [ "${{ github.event.inputs.BASE }}" = "CN" ]; then
-            rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
-            "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-CN/" > /dev/null 2>&1 || exit 1
-            python upload.py "1PosY7KpdfuAquJjGDMpYSgYUNNKNLTyf" "$ROM_OUTPUT"
-          elif [ "${{ github.event.inputs.BASE }}" = "MI" ]; then
-            rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
-            "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-MI/" > /dev/null 2>&1 || exit 1
-            python upload.py "1R_Jea3FWErH_9U1jeOGLv9nmIzJBQXUz" "$ROM_OUTPUT"
-          fi
-          echo "Uploaded $ZK_NAME"
+          rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
+          "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-CN/" > /dev/null 2>&1 || exit 1
+          python upload.py "1PosY7KpdfuAquJjGDMpYSgYUNNKNLTyf" "$ROM_OUTPUT"
           sudo rm -rf "$ZK_HOME"
