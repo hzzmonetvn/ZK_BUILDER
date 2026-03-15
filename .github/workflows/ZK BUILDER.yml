@@ -188,7 +188,7 @@ jobs:
           if [ "$ROM_VER" = "V14" ]; then
             upload_sf_file "$ROM_OUTPUT" "ZKUI14.0"
             python upload.py 1a2O_DmmxH6o4szRJaBQjSfYXjYvdlRUO "$ROM_OUTPUT" || exit 1
-          elif [ "$ROM_VER" = "OS2" ]; then
+          elif [ "$ROM_VER" = "OS2" ] || [ "$ROM_VER" = "OS2_A14" ]; then
             upload_sf_file "$ROM_OUTPUT" "ZKOS2.2"
             python upload.py 1KV-VovIo3NgZlGNLM0Aj2RwmT3q4mTfy "$ROM_OUTPUT" || exit 1
           elif [ "$ROM_VER" = "OS3" ] || [ "$ROM_VER" = "OS3_A15" ]; then
