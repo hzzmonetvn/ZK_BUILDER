@@ -57,7 +57,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           sudo timedatectl set-timezone UTC
           sudo apt-get update > /dev/null 2>&1
-          sudo apt-get install -y python3 python-is-python3 python3-pip p7zip-full openjdk-17-jdk-headless openssh-client aria2 zip > /dev/null 2>&1
+          sudo apt-get install -y python3 python-is-python3 python3-pip p7zip-full openjdk-17-jdk-headless openssh-client aria2 zip zipalign > /dev/null 2>&1
           pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib > /dev/null 2>&1
           DATE=$(TZ=UTC date +"%y%m%d")
           ROM_URL="${{ github.event.inputs.URL }}"
