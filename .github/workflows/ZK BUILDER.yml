@@ -13,10 +13,6 @@ on:
         description: "SF UPLOADER"
         type: boolean
         default: 'true'
-      DEBUG:
-        description: "DEBUG MODE"
-        type: boolean
-        default: 'false'
       PRIVATE:
         description: "PRIVATE BUILD"
         type: boolean
@@ -61,7 +57,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           sudo timedatectl set-timezone UTC
           sudo apt-get update > /dev/null 2>&1
-          sudo apt-get install -y python3 python-is-python3 python3-pip p7zip-full openjdk-17-jdk-headless openssh-client aria2 zip zipalign > /dev/null 2>&1
+          sudo apt-get install -y python3 python-is-python3 python3-pip p7zip-full openjdk-17-jdk-headless openssh-client aria2 zip > /dev/null 2>&1
           pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib > /dev/null 2>&1
           DATE=$(TZ=UTC date +"%y%m%d")
           ROM_URL="${{ github.event.inputs.URL }}"
@@ -112,24 +108,7 @@ jobs:
             project="${tmp%%/*}"
             path="${tmp#*/files/}"
             path="${path%/download}"
-            mirrors=(jaist twds nchc phoenixnap cfhcable versaweb pilotfiber netix)
-            best=""
-            best_time=999
-            for i in "${mirrors[@]}"; do
-              test="https://${i}.dl.sourceforge.net/project/${project}/${path}?viasf=1"
-              t=$(curl -r 0-0 -o /dev/null -s -w "%{time_total}" \
-              --connect-timeout 5 --max-time 10 "$test") || continue
-              [[ -z "$t" ]] && continue
-              if (( $(echo "$t >= 10" | bc -l) )); then
-                continue
-              fi
-              if (( $(echo "$t < $best_time" | bc -l) )); then
-                best="$i"
-                best_time="$t"
-              fi
-            done
-            [[ -z "$best" ]] && best="cfhcable"
-            FINAL_URL="https://${best}.dl.sourceforge.net/project/${project}/${path}?viasf=1"
+            FINAL_URL="https://cfhcable.dl.sourceforge.net/project/${project}/${path}?viasf=1"
             echo "LINK: $FINAL_URL"
             cd "$GITHUB_WORKSPACE/ROM" && timeout 9000 aria2c $FINAL_URL -o ${ZK_NAME}.zip || exit 1
           fi
@@ -152,8 +131,7 @@ jobs:
         run: |
           cd "$ZK_HOME"
           sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" \
-          "${{ github.event.inputs.EXT4 }}" "${{ github.event.inputs.PRIVATE }}" \
-          "${{ github.event.inputs.DEBUG }}"
+          "${{ github.event.inputs.EXT4 }}" "${{ github.event.inputs.PRIVATE }}"
 
       - name: Update super size database
         env:
