@@ -13,6 +13,10 @@ on:
         description: "SF UPLOADER"
         type: boolean
         default: 'true'
+      DEBUG:
+        description: "DEBUG MODE"
+        type: boolean
+        default: 'false'
       PRIVATE:
         description: "PRIVATE BUILD"
         type: boolean
@@ -148,7 +152,8 @@ jobs:
         run: |
           cd "$ZK_HOME"
           sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" \
-          "${{ github.event.inputs.EXT4 }}" "${{ github.event.inputs.PRIVATE }}"
+          "${{ github.event.inputs.EXT4 }}" "${{ github.event.inputs.PRIVATE }}" \
+          "${{ github.event.inputs.DEBUG }}"
 
       - name: Update super size database
         env:
