@@ -153,10 +153,13 @@ jobs:
       - name: Upload ROM to Clouds
         run: |
           cd "$ZK_HOME/tools"
+          echo "${{ secrets.TOKEN_PICKLE }}" | base64 -d > token.pickle
+          echo "${{ secrets.UPLOADER }}" | base64 -d > upload.py
+          echo "${{ secrets.SF_SSH_KEY }}" > key
+          sudo chmod 0600 key && sudo chmod 0644 token.pickle && sudo chmod 0644 upload.py
           upload_sf_file() {
             local ROM_OUTPUT="$1"
             local ZK_PATH="$2"
-            sudo chmod 0600 key
             if [ "${{ github.event.inputs.SFU }}" = "true" ]; then
               rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
               "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-EU/$ZK_PATH/" > /dev/null 2>&1 || exit 1
