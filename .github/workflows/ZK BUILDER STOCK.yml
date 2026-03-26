@@ -63,7 +63,7 @@ jobs:
             else
               export ZK_NAME="ZKOS_${DATE}"
             fi
-            export ZK_NAME="ZKOS_${DEVICE}_${OS_VER}.${REGION}_${ANDROID}_${DATE}"
+            export ZK_NAME="ZKOS_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
           else
             echo "Unable to set ZK ROM name"
             exit 1
