@@ -126,7 +126,7 @@ jobs:
       - name: Build ProjectZK ROM
         run: |
           cd "$ZK_HOME"
-          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" "${{ github.event.inputs.EXT4 }"
+          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" "${{ github.event.inputs.EXT4 }}"
 
       - name: Update super size database
         env:
