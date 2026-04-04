@@ -13,10 +13,6 @@ on:
         description: "SF UPLOADER"
         type: boolean
         default: 'true'
-      PRIVATE:
-        description: "PRIVATE BUILD"
-        type: boolean
-        default: 'false'
       EXT4:
         description: "FORCE EXT4"
         type: boolean
@@ -130,8 +126,7 @@ jobs:
       - name: Build ProjectZK ROM
         run: |
           cd "$ZK_HOME"
-          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" \
-          "${{ github.event.inputs.EXT4 }}" "${{ github.event.inputs.PRIVATE }}"
+          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" "${{ github.event.inputs.EXT4 }"
 
       - name: Update super size database
         env:
@@ -166,19 +161,14 @@ jobs:
               echo "Uploaded $1 to Sourceforge"
             fi
           }
-          if [ "${{ github.event.inputs.PRIVATE }}" = "true" ]; then
-            for i in "$ZK_HOME"/vendor_boot*.img; do
-              python upload.py 1xHbU2pheeT0LQvEfa42Gf7EjY35Bfzw4 "$i" > /dev/null 2>&1
-            done
-          fi
           if [ "$ROM_VER" = "V14" ]; then
             upload_sf_file "$ROM_OUTPUT" "ZKUI14.0"
-            python upload.py 1a2O_DmmxH6o4szRJaBQjSfYXjYvdlRUO "$ROM_OUTPUT" || exit 1
+            python upload.py 1a2O_DmmxH6o4szRJaBQjSfYXjYvdlRUO "$ROM_OUTPUT" > /dev/null 2>&1 || exit 1
           elif [ "$ROM_VER" = "OS2" ] || [ "$ROM_VER" = "OS2_A14" ]; then
             upload_sf_file "$ROM_OUTPUT" "ZKOS2.2"
-            python upload.py 1KV-VovIo3NgZlGNLM0Aj2RwmT3q4mTfy "$ROM_OUTPUT" || exit 1
+            python upload.py 1KV-VovIo3NgZlGNLM0Aj2RwmT3q4mTfy "$ROM_OUTPUT" > /dev/null 2>&1 || exit 1
           elif [ "$ROM_VER" = "OS3" ] || [ "$ROM_VER" = "OS3_A15" ]; then
             upload_sf_file "$ROM_OUTPUT" "ZKOS3.0"
-            python upload.py 1fFNVQDoS4qnOIZP1xyoAiPYGUK2lUUNu "$ROM_OUTPUT" || exit 1
+            python upload.py 1fFNVQDoS4qnOIZP1xyoAiPYGUK2lUUNu "$ROM_OUTPUT" > /dev/null 2>&1 || exit 1
           fi
           sudo rm -rf "$GITHUB_WORKSPACE"/* "$ZK_HOME"/*
