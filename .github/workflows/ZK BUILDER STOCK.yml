@@ -142,11 +142,11 @@ jobs:
           sudo chmod 0600 key && sudo chmod 0644 token.pickle && sudo chmod 0644 upload.py
           if [ -f "$ZK_HOME/is_global" ]; then
             rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
-            "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-CN/" > /dev/null 2>&1 || exit 1
-            python upload.py "1PosY7KpdfuAquJjGDMpYSgYUNNKNLTyf" "$ROM_OUTPUT" > /dev/null 2>&1
-          else
-            rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
             "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-MI/" > /dev/null 2>&1 || exit 1
             python upload.py "1Jqf8-N4cjtVP4sEW0hApORKPXr68DGqH" "$ROM_OUTPUT" > /dev/null 2>&1
+          else
+            rsync -a --partial -q -e "ssh -i key -o StrictHostKeyChecking=no" "$ROM_OUTPUT" \
+            "zuri1503@frs.sourceforge.net:/home/frs/project/projectzk/ProjectZK/ZK-CN/" > /dev/null 2>&1 || exit 1
+            python upload.py "1PosY7KpdfuAquJjGDMpYSgYUNNKNLTyf" "$ROM_OUTPUT" > /dev/null 2>&1
           fi
           sudo rm -rf "$ZK_HOME"
