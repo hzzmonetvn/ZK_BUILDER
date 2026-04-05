@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       URL:
-        description: "XIAOMI.EU ROM URL"
+        description: "XIAOMI.EU URL"
         required: true
       SFU:
         description: "SF UPLOADER"
@@ -168,7 +168,14 @@ jobs:
             upload_sf_file "$ROM_OUTPUT" "ZKOS2.2"
             python upload.py 1KV-VovIo3NgZlGNLM0Aj2RwmT3q4mTfy "$ROM_OUTPUT" > /dev/null 2>&1 || exit 1
           elif [ "$ROM_VER" = "OS3" ] || [ "$ROM_VER" = "OS3_A15" ]; then
-            upload_sf_file "$ROM_OUTPUT" "ZKOS3.0"
-            python upload.py 1fFNVQDoS4qnOIZP1xyoAiPYGUK2lUUNu "$ROM_OUTPUT" > /dev/null 2>&1 || exit 1
+            case "$DEVICE" in
+              "NEZHA" | "PANDORA" | "PUDDING" | "POPSICLE" | "MYRON")
+                python upload.py "${{ secrets.PRIVATE_DRIVE_ID }}" "$ROM_OUTPUT" > /dev/null 2>&1 || exit 1
+                ;;
+              *)
+                upload_sf_file "$ROM_OUTPUT" "ZKOS3.0"
+                python upload.py "1fFNVQDoS4qnOIZP1xyoAiPYGUK2lUUNu" "$ROM_OUTPUT" > /dev/null 2>&1 || exit 1
+                ;;
+            esac
           fi
           sudo rm -rf "$GITHUB_WORKSPACE"/* "$ZK_HOME"/*
