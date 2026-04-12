@@ -74,7 +74,7 @@ jobs:
               REGION="${BASH_REMATCH[3]}"
               ANDROID="${BASH_REMATCH[4]}"
               ROM_VER="${OS_VER%%.*}"
-              export ZK_NAME="ZKOS_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+              export ZK_NAME="ZKOS-BETA_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
             else
               export ZK_NAME="ZKOS_${DATE}"
             fi
