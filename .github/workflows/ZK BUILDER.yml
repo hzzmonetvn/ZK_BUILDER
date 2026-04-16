@@ -175,7 +175,7 @@ jobs:
                 python upload.py "${{ secrets.PRIVATE_DRIVE_ID }}" "$ROM_OUTPUT" > /dev/null 2>&1 || exit 1
                 ;;
               *)
-                upload_sf_file "$ROM_OUTPUT" "ZKOS3.0"
+                upload_sf_file "$ROM_OUTPUT" "ZKOS3.3"
                 python upload.py "1fFNVQDoS4qnOIZP1xyoAiPYGUK2lUUNu" "$ROM_OUTPUT" > /dev/null 2>&1 || exit 1
                 ;;
             esac
