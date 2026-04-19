@@ -142,7 +142,7 @@ jobs:
 
       - name: Clone ZK AUTO BUILD sources
         run: |
-          ZK_HOME="/home/runner/work/ZK_AUTO_BUILD/ZK_AUTO_BUILD"
+          export ZK_HOME="/home/runner/work/ZK_AUTO_BUILD/ZK_AUTO_BUILD"
           echo "ZK_HOME=$ZK_HOME" >> $GITHUB_ENV
           mkdir -p ~/.ssh
           echo "${{ secrets.PRIVATE_REPO_KEY }}" > ~/.ssh/id_ed25519
@@ -242,32 +242,29 @@ jobs:
         if: always()
         run: |
           ROM_FILENAME=$(basename "${ROM_OUTPUT:-unknown}")
-          {
-            echo "## 📦 Build Completed"
-            echo "**File:** \`${ROM_FILENAME}\`"
-            echo ""
-          } >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Build Completed" >> $GITHUB_STEP_SUMMARY
+          echo "**File:** \`${ROM_FILENAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
           check_link() {
-            local label="$1" link="$2" enabled_input="$3"
+            local label="$1" link_var="$2" enabled_input="$3"
+            local link="${!link_var}"
             if [ -n "$link" ]; then
               echo "✅ **${label}:** [${link}](${link})" >> $GITHUB_STEP_SUMMARY
             elif [ "$enabled_input" = "true" ]; then
               echo "❌ **${label}:** Upload failed" >> $GITHUB_STEP_SUMMARY
             fi
           }
-
-          check_link "SourceForge"   "$SF_LINK"      "${{ github.event.inputs.UPLOAD_SF }}"
-          check_link "Google Drive"  "$GDRIVE_LINK"  "${{ github.event.inputs.UPLOAD_GDRIVE }}"
-          check_link "Gofile"        "$GOFILE_LINK"  "${{ github.event.inputs.UPLOAD_GOFILE }}"
-          check_link "Pixeldrain"    "$PIXEL_LINK"   "${{ github.event.inputs.UPLOAD_PIXELDRAIN }}"
-
-          KEYBOARD=$(jq -n '[]')
+          check_link "SourceForge"   SF_LINK      "${{ github.event.inputs.UPLOAD_SF }}"
+          check_link "Google Drive"  GDRIVE_LINK  "${{ github.event.inputs.UPLOAD_GDRIVE }}"
+          check_link "Gofile"        GOFILE_LINK  "${{ github.event.inputs.UPLOAD_GOFILE }}"
+          check_link "Pixeldrain"    PIXEL_LINK   "${{ github.event.inputs.UPLOAD_PIXELDRAIN }}"
+          KEYBOARD='[]'
           add_btn() {
             local label="$1" url="$2"
-            KEYBOARD=$(echo "$KEYBOARD" | jq --arg l "$label" --arg u "$url" '. += [[{"text":$l, "url":$u}]]')
+            KEYBOARD=$(printf '%s' "$KEYBOARD" | \
+              jq --arg l "$label" --arg u "$url" '. + [[{"text":$l,"url":$u}]]')
           }
-
           [ -n "$SF_LINK" ]     && add_btn "📥 SourceForge"   "$SF_LINK"
           [ -n "$GDRIVE_LINK" ] && add_btn "📥 Google Drive"  "$GDRIVE_LINK"
           [ -n "$GOFILE_LINK" ] && add_btn "📥 Gofile"        "$GOFILE_LINK"
@@ -281,13 +278,14 @@ jobs:
             --arg text  "$TG_TEXT" \
             --argjson kb "$KEYBOARD" \
             '{
-              chat_id: $chat,
-              parse_mode: "HTML",
-              text: $text,
+              chat_id:      $chat,
+              parse_mode:   "HTML",
+              text:         $text,
               reply_markup: { inline_keyboard: $kb }
             }')
 
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD"
 
