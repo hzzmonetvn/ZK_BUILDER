@@ -114,7 +114,7 @@ jobs:
           if [ -f "$ZK_HOME/is_global" ]; then
             python upload.py "1Jqf8-N4cjtVP4sEW0hApORKPXr68DGqH" "$ROM_OUTPUT"
           else
-            python upload.py "1PosY7KpdfuAquJjGDMpYSgYUNNKNLTyf" "$ROM_OUTPUT"
+            python upload.py "1VeBZIqpXQFTU7ktGSu_rF9V_bSTRQHIf" "$ROM_OUTPUT"
           fi
           sudo rm -rf "$ZK_HOME"
 
