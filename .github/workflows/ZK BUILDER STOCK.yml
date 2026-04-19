@@ -161,10 +161,3 @@ jobs:
           fi
           sudo rm -rf "$ZK_HOME"
 
-      - name: Notify to Telegram
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: |
-            Successfully to build $ZK_NAME !
