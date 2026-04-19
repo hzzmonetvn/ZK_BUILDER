@@ -76,7 +76,6 @@ jobs:
           echo "ZK_NAME=$ZK_NAME" >> $GITHUB_ENV
           echo "DEVICE=$DEVICE" >> $GITHUB_ENV
           echo "$ZK_NAME"
-          [ "$DEVICE" != "NUWA" ] && exit 1
 
       - name: Download ROM files
         env:
