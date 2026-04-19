@@ -1,0 +1,128 @@
+name: ZK BUILDER FORK
+
+on:
+  workflow_dispatch:
+    inputs:
+      URL:
+        description: "OTA ROM URL"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6.0.2
+
+      - name: Check free disk space
+        id: diskcheck
+        run: |
+          FREE_GB=$(df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}')
+          echo "Free disk space: ${FREE_GB}GB"
+          if [ "$FREE_GB" -lt 50 ]; then
+            echo "need_cleanup=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_cleanup=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Maximize build disk space
+        if: steps.diskcheck.outputs.need_cleanup == 'true'
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-cached-tools: 'true'
+
+      - name: Setup build environment
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          sudo timedatectl set-timezone UTC
+          sudo apt-get update > /dev/null 2>&1
+          sudo apt-get install -y android-sdk-libsparse-utils aria2 device-tree-compiler erofs-utils g++ \
+          gcc git lz4 openjdk-17-jdk openjdk-17-jdk-headless openssh-client p7zip-full python-is-python3 \
+          python3 python3-pip xz-utils zip zlib1g-dev > /dev/null 2>&1
+          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib > /dev/null 2>&1
+          DATE=$(TZ=UTC date +"%y%m%d")
+          ROM_URL="${{ github.event.inputs.URL }}"
+          ROM_NAME="$(basename "${ROM_URL%%\?*}")"
+          if [[ "$ROM_NAME" == *"-OS"* ]]; then
+            if [[ "$ROM_NAME" =~ ^([a-z0-9]+)-ota_full-(OS[0-9.]+)\.([A-Z0-9]+)-user-([0-9.]+)-.*\.zip$ ]]; then
+              DEVICE_RAW="${BASH_REMATCH[1]}"
+              DEVICE="${DEVICE_RAW^^}"
+              OS_VER="${BASH_REMATCH[2]}"
+              REGION="${BASH_REMATCH[3]}"
+              ANDROID="${BASH_REMATCH[4]}"
+              ROM_VER="${OS_VER%%.*}"
+              export ZK_NAME="ZKOS-FORK_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+            elif [[ "$ROM_NAME" =~ ^([a-z0-9]+)_[a-z_]+-ota_full-(OS[0-9.]+)\.([A-Z0-9]+)-user-([0-9.]+)-.*\.zip$ ]]; then
+              DEVICE_RAW="${BASH_REMATCH[1]}"
+              DEVICE="${DEVICE_RAW^^}"
+              OS_VER="${BASH_REMATCH[2]}"
+              REGION="${BASH_REMATCH[3]}"
+              ANDROID="${BASH_REMATCH[4]}"
+              ROM_VER="${OS_VER%%.*}"
+              export ZK_NAME="ZKOS-FORK_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+            else
+              export ZK_NAME="ZKOS_${DATE}"
+            fi
+          else
+            echo "Unable to set ZK ROM name"
+            exit 1
+          fi
+          echo "ZK_NAME=$ZK_NAME" >> $GITHUB_ENV
+          echo "DEVICE=$DEVICE" >> $GITHUB_ENV
+          echo "$ZK_NAME"
+          [ "$DEVICE" != "NUWA" ] && exit 1
+
+      - name: Download ROM files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p "$GITHUB_WORKSPACE/ROM" && cd "$GITHUB_WORKSPACE/ROM"
+          timeout 9000 aria2c -s16 -x16 -j$(nproc) -c -U "Mozilla/5.0" \
+          -o "${ZK_NAME}.zip" "${{ github.event.inputs.URL }}" || exit 1
+
+      - name: Clone ZK AUTO BUILD sources
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          export ZK_HOME="/home/runner/work/ZK_AUTO_BUILD/ZK_AUTO_BUILD"
+          echo "ZK_HOME=$ZK_HOME" >> $GITHUB_ENV
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRIVATE_REPO_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git clone -b hzz --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+          mkdir -p "$ZK_HOME/ROM"
+          mv -f "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" "$ZK_HOME/ROM/${ZK_NAME}.zip"
+          sudo chmod -R +x "$ZK_HOME"
+
+      - name: Build ProjectZK ROM
+        run: |
+          cd "$ZK_HOME"
+          sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" "9663676416"
+
+      - name: Upload ROM to Clouds
+        run: |
+          cd "$ZK_HOME/tools"
+          echo "${{ secrets.TOKEN_PICKLE_2 }}" | base64 -d > token.pickle
+          echo "${{ secrets.UPLOADER }}" | base64 -d > upload.py
+          sudo chmod 0644 token.pickle && sudo chmod 0644 upload.py
+          if [ -f "$ZK_HOME/is_global" ]; then
+            python upload.py "1Jqf8-N4cjtVP4sEW0hApORKPXr68DGqH" "$ROM_OUTPUT"
+          else
+            python upload.py "1PosY7KpdfuAquJjGDMpYSgYUNNKNLTyf" "$ROM_OUTPUT"
+          fi
+          sudo rm -rf "$ZK_HOME"
+
+      - name: Notify to Telegram
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            Successfully to build "$ZK_NAME" !
