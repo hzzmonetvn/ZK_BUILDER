@@ -108,7 +108,7 @@ jobs:
       - name: Upload ROM to Clouds
         run: |
           cd "$ZK_HOME/tools"
-          echo "${{ secrets.TOKEN_PICKLE_2 }}" | base64 -d > token.pickle
+          echo "${{ secrets.TOKEN_PICKLE_FORK }}" | base64 -d > token.pickle
           echo "${{ secrets.UPLOADER }}" | base64 -d > upload.py
           sudo chmod 0644 token.pickle && sudo chmod 0644 upload.py
           if [ -f "$ZK_HOME/is_global" ]; then
