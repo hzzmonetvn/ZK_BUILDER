@@ -160,3 +160,11 @@ jobs:
             python upload.py "1PosY7KpdfuAquJjGDMpYSgYUNNKNLTyf" "$ROM_OUTPUT" > /dev/null 2>&1
           fi
           sudo rm -rf "$ZK_HOME"
+
+      - name: Notify to Telegram
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            Successfully to build $ZK_NAME !
