@@ -124,4 +124,4 @@ jobs:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           message: |
-            Successfully to build "$ZK_NAME" !
+            Successfully to build $ZK_NAME !
