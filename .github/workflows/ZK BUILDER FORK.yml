@@ -299,7 +299,7 @@ jobs:
             echo "::warning::Pixeldrain upload thất bại: $RESPONSE"
           fi
 
-- name: Telegram Notification — Success
+      - name: Telegram Notification — Success
         if: success()
         run: |
           ROM_FILENAME=$(basename "${ROM_OUTPUT}")
