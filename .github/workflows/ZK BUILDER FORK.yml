@@ -299,63 +299,47 @@ jobs:
             echo "::warning::Pixeldrain upload thất bại: $RESPONSE"
           fi
 
-      # ─────────────────────────────────────────────
-      # 11. TELEGRAM — SUCCESS
-      # ─────────────────────────────────────────────
-      - name: Telegram Notification — Success
+- name: Telegram Notification — Success
         if: success()
         run: |
           ROM_FILENAME=$(basename "${ROM_OUTPUT}")
           ROM_SIZE=$(du -sh "$ROM_OUTPUT" 2>/dev/null | cut -f1 || echo "?")
 
-          echo "## ✅ Build Thành Công" >> $GITHUB_STEP_SUMMARY
-          echo "**File:** \`${ROM_FILENAME}\`  |  **Size:** ${ROM_SIZE}" >> $GITHUB_STEP_SUMMARY
-          [ -n "$SF_LINK" ]     && echo "- 📥 SourceForge: $SF_LINK"      >> $GITHUB_STEP_SUMMARY
-          [ -n "$GDRIVE_LINK" ] && echo "- 📥 Google Drive: $GDRIVE_LINK" >> $GITHUB_STEP_SUMMARY
-          [ -n "$GOFILE_LINK" ] && echo "- 📥 Gofile: $GOFILE_LINK"       >> $GITHUB_STEP_SUMMARY
-          [ -n "$PIXEL_LINK" ]  && echo "- 📥 Pixeldrain: $PIXEL_LINK"    >> $GITHUB_STEP_SUMMARY
-          [ -n "$PIXEL_CDN" ]   && echo "- ⚡ Pixeldrain CDN: $PIXEL_CDN" >> $GITHUB_STEP_SUMMARY
-
-          # Build inline keyboard
-          KEYBOARD=$(jq -n '[]')
-          add_btn() {
-            KEYBOARD=$(echo "$KEYBOARD" | jq --arg l "$1" --arg u "$2" \
+          ROWS="[]"
+          append_btn() {
+            local label="$1" url="$2"
+            ROWS=$(printf '%s' "$ROWS" | jq \
+              --arg l "$label" --arg u "$url" \
               '. += [[{"text":$l,"url":$u}]]')
           }
-          [ -n "$SF_LINK" ]     && add_btn "📥 SourceForge"   "$SF_LINK"
-          [ -n "$GDRIVE_LINK" ] && add_btn "📥 Google Drive"  "$GDRIVE_LINK"
-          [ -n "$GOFILE_LINK" ] && add_btn "📥 Gofile"        "$GOFILE_LINK"
-          [ -n "$PIXEL_LINK" ]  && add_btn "📥 Pixeldrain"    "$PIXEL_LINK"
-          [ -n "$PIXEL_CDN" ]   && add_btn "⚡ Pixeldrain CDN" "$PIXEL_CDN"
 
-          TG_TEXT="✅ <b>Build Thành Công!</b>
-📦 <b>File:</b> <code>${ROM_FILENAME}</code>
-💾 <b>Size:</b> ${ROM_SIZE}"
+          [ -n "${SF_LINK}"     ] && append_btn "📥 SourceForge" "$SF_LINK"
+          [ -n "${GDRIVE_LINK}" ] && append_btn "📥 Google Drive" "$GDRIVE_LINK"
+          [ -n "${GOFILE_LINK}" ] && append_btn "📥 Gofile" "$GOFILE_LINK"
+          [ -n "${PIXEL_LINK}"  ] && append_btn "📥 Pixeldrain" "$PIXEL_LINK"
+          [ -n "${PIXEL_CDN}"   ] && append_btn "⚡ Pixeldrain CDN" "$PIXEL_CDN"
+
+          TG_TEXT=$(printf '✅ <b>Build Thành Công!</b>\n📦 <b>File:</b> <code>%s</code>\n💾 <b>Size:</b> %s' \
+            "$ROM_FILENAME" "$ROM_SIZE")
 
           PAYLOAD=$(jq -n \
             --arg chat "${{ secrets.TELEGRAM_TO }}" \
             --arg text "$TG_TEXT" \
-            --argjson kb "$KEYBOARD" \
-            '{chat_id:$chat, parse_mode:"HTML", text:$text,
-              reply_markup:{inline_keyboard:$kb}}')
+            --argjson kb "$ROWS" \
+            '{chat_id:$chat, parse_mode:"HTML", text:$text, reply_markup:{inline_keyboard:$kb}}')
 
           curl -s -X POST \
             "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -H "Content-Type: application/json" -d "$PAYLOAD"
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
 
-      # ─────────────────────────────────────────────
-      # 12. TELEGRAM — FAILURE
-      # ─────────────────────────────────────────────
       - name: Telegram Notification — Failure
         if: failure()
         run: |
-          echo "## ❌ Build Thất Bại" >> $GITHUB_STEP_SUMMARY
-          echo "**ROM:** \`${ZK_NAME}\`" >> $GITHUB_STEP_SUMMARY
-
           LOG_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          TG_TEXT="❌ <b>Build Thất Bại!</b>
-📦 <b>ROM:</b> <code>${ZK_NAME}</code>
-🔗 <a href=\"${LOG_URL}\">Xem log chi tiết</a>"
+
+          TG_TEXT=$(printf '❌ <b>Build Thất Bại!</b>\n📦 <b>ROM:</b> <code>%s</code>\n🔗 <a href="%s">Xem log chi tiết</a>' \
+            "$ZK_NAME" "$LOG_URL")
 
           PAYLOAD=$(jq -n \
             --arg chat "${{ secrets.TELEGRAM_TO }}" \
@@ -366,11 +350,9 @@ jobs:
 
           curl -s -X POST \
             "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -H "Content-Type: application/json" -d "$PAYLOAD"
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
 
-      # ─────────────────────────────────────────────
-      # 13. CLEANUP
-      # ─────────────────────────────────────────────
       - name: Cleanup
         if: always()
         run: |
