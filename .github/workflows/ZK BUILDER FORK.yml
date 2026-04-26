@@ -11,165 +11,367 @@ on:
         required: true
       URL2:
         description: "FASTBOOT ROM URL (opt)"
-        required: false
       UPLOAD_SF:
+        description: "Upload to SourceForge"
         type: boolean
         default: false
       UPLOAD_GDRIVE:
+        description: "Upload to Google Drive"
         type: boolean
         default: false
       UPLOAD_GOFILE:
+        description: "Upload to Gofile"
         type: boolean
         default: false
       UPLOAD_PIXELDRAIN:
+        description: "Upload to Pixeldrain"
         type: boolean
         default: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      # ─────────────────────────────────────────────
+      # 1. CHECKOUT
+      # ─────────────────────────────────────────────
+      - name: Checkout main
+        uses: actions/checkout@v4
 
-      - name: Setup
+      # ─────────────────────────────────────────────
+      # 2. DISK SPACE CHECK + CLEANUP
+      # ─────────────────────────────────────────────
+      - name: Check free disk space
+        id: diskcheck
         run: |
-          sudo apt update
-          sudo apt install -y aria2 jq curl rsync python3 python3-pip
-          curl -fsSL https://rclone.org/install.sh | sudo bash
+          FREE_GB=$(df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}')
+          echo "Free disk space: ${FREE_GB}GB"
+          if [ "$FREE_GB" -lt 50 ]; then
+            echo "need_cleanup=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_cleanup=false" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Init
+      - name: Maximize build disk space
+        if: steps.diskcheck.outputs.need_cleanup == 'true'
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-cached-tools: 'true'
+
+      # ─────────────────────────────────────────────
+      # 3. SETUP + PARSE ROM NAME
+      # ─────────────────────────────────────────────
+      - name: Setup build environment
         run: |
-          DATE=$(date +"%y%m%d")
+          sudo timedatectl set-timezone UTC
+          sudo apt-get update > /dev/null 2>&1
+          sudo apt-get install -y \
+            android-sdk-libsparse-utils aria2 device-tree-compiler erofs-utils \
+            g++ gcc git lz4 openjdk-17-jdk openjdk-17-jdk-headless openssh-client \
+            p7zip-full python-is-python3 python3 python3-pip xz-utils zip zlib1g-dev \
+            > /dev/null 2>&1
+          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+            > /dev/null 2>&1
+
+          DATE=$(TZ=UTC date +"%y%m%d")
           ROM_URL="${{ github.event.inputs.URL }}"
-          ROM_NAME=$(basename "${ROM_URL%%\?*}")
-          ZK_NAME="ZKOS_${DATE}"
+          ROM_NAME="$(basename "${ROM_URL%%\?*}")"
+          echo "📝 Parsing ROM name: $ROM_NAME"
 
-          echo "ZK_NAME=$ZK_NAME" >> $GITHUB_ENV
-
-      - name: Download ROM
-        run: |
-          mkdir ROM && cd ROM
-          aria2c -x16 -s16 -o "${ZK_NAME}.zip" "${{ github.event.inputs.URL }}"
-
-      - name: Clone builder
-        run: |
-          git clone --depth=1 https://github.com/zuri1503/ZK_AUTO_BUILD.git builder
-          mv ROM/*.zip builder/ROM/
-
-      - name: Build
-        id: build_step
-        run: |
-          cd builder
-
-          set +e
-          bash build.sh "$GITHUB_ENV" "$PWD" "$ZK_NAME" "0"
-          BUILD_EXIT=$?
-          set -e
-
-          source "$GITHUB_ENV" || true
-
-          if [ $BUILD_EXIT -ne 0 ]; then
-            echo "BUILD_STATUS=failed" >> $GITHUB_ENV
+          if [[ "$ROM_NAME" == *"-OS"* ]]; then
+            if [[ "$ROM_NAME" =~ ^([a-z0-9]+)-ota_full-(OS[0-9.]+)\.([A-Z0-9]+)-user-([0-9.]+)-.*\.zip$ ]]; then
+              DEVICE="${BASH_REMATCH[1]^^}"
+              OS_VER="${BASH_REMATCH[2]}"
+              REGION="${BASH_REMATCH[3]}"
+              ZK_NAME="ZKOS-Fork_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+            elif [[ "$ROM_NAME" =~ ^([a-z0-9]+)_[a-z_]+-ota_full-(OS[0-9.]+)\.([A-Z0-9]+)-user-([0-9.]+)-.*\.zip$ ]]; then
+              DEVICE="${BASH_REMATCH[1]^^}"
+              OS_VER="${BASH_REMATCH[2]}"
+              REGION="${BASH_REMATCH[3]}"
+              ZK_NAME="ZKOS-BETA_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+            else
+              echo "::error::Không parse được tên ROM: $ROM_NAME"
+              exit 1
+            fi
+          else
+            echo "::error::ROM name không chứa '-OS': $ROM_NAME"
             exit 1
+          fi
+
+          echo "✅ ZK_NAME=$ZK_NAME  DEVICE=$DEVICE"
+          echo "ZK_NAME=$ZK_NAME"   >> $GITHUB_ENV
+          echo "DEVICE=$DEVICE"     >> $GITHUB_ENV
+
+      # ─────────────────────────────────────────────
+      # 4. DOWNLOAD ROM + DETECT SUPER SIZE
+      # ─────────────────────────────────────────────
+      - name: Download ROM files
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/ROM" && cd "$GITHUB_WORKSPACE/ROM"
+
+          echo "⬇️  Downloading OTA ROM..."
+          timeout 9000 aria2c -s16 -x16 -j$(nproc) -c -U "Mozilla/5.0" \
+            -o "${ZK_NAME}.zip" "${{ github.event.inputs.URL }}" \
+            || { echo "::error::OTA download thất bại"; exit 1; }
+
+          super_json="super_size.json"
+          aria2c -q -o "$super_json" \
+            "https://github.com/zuri1503/ZK_BUILDER/releases/download/super-size/super_size.json" \
+            || touch "$super_json"
+
+          if jq -e --arg m "$DEVICE" '.[$m]' "$super_json" >/dev/null 2>&1; then
+            super_size=$(jq -r --arg m "$DEVICE" '.[$m].super_size' "$super_json")
+            echo "✅ Super size từ JSON: $super_size"
+          else
+            if [ -z "${{ github.event.inputs.URL2 }}" ]; then
+              echo "::error::Không có FASTBOOT URL và device $DEVICE không có trong super_size.json"
+              exit 1
+            fi
+            echo "⬇️  Downloading FASTBOOT để detect super size..."
+            timeout 9000 aria2c -s16 -x16 -j$(nproc) -c \
+              -o "FASTBOOT.tgz" "${{ github.event.inputs.URL2 }}" \
+              || { echo "::error::FASTBOOT download thất bại"; exit 1; }
+            mkdir -p "FASTBOOT" && tar -xzf "FASTBOOT.tgz" -C "FASTBOOT" > /dev/null 2>&1
+            simg2img FASTBOOT/*/images/super.img "FASTBOOT/super.img"
+            super_size=$(stat -c %s "FASTBOOT/super.img")
+            echo "✅ Super size từ FASTBOOT: $super_size"
+            rm -rf FASTBOOT FASTBOOT.tgz
+          fi
+
+          echo "SUPER_SIZE=$super_size" >> $GITHUB_ENV
+
+      # ─────────────────────────────────────────────
+      # 5. CLONE BUILD SOURCES VIA SSH
+      # ─────────────────────────────────────────────
+      - name: Clone ZK AUTO BUILD sources
+        run: |
+          ZK_HOME="/home/runner/work/ZK_AUTO_BUILD/ZK_AUTO_BUILD"
+          echo "ZK_HOME=$ZK_HOME" >> $GITHUB_ENV
+
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRIVATE_REPO_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone -b hzz --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+          mkdir -p "$ZK_HOME/ROM"
+          mv -f "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" "$ZK_HOME/ROM/${ZK_NAME}.zip"
+          sudo chmod -R +x "$ZK_HOME"
+          echo "✅ Đã clone sources"
+
+      # ─────────────────────────────────────────────
+      # 6. BUILD — detect lỗi + auto-detect ROM_OUTPUT
+      # ─────────────────────────────────────────────
+      - name: Build ProjectZK ROM
+        id: build
+        run: |
+          cd "$ZK_HOME"
+          echo "🔨 Bắt đầu build: $ZK_NAME"
+
+          if sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" "$SUPER_SIZE"; then
+            echo "BUILD_STATUS=success" >> $GITHUB_ENV
+          else
+            echo "BUILD_STATUS=failed" >> $GITHUB_ENV
+            echo "::error::build.sh thất bại"
+            exit 1
+          fi
+
+          # Re-source để lấy ROM_OUTPUT từ build.sh (nếu nó đã set)
+          source "$GITHUB_ENV" 2>/dev/null || true
+
+          # Auto-detect nếu build.sh không set ROM_OUTPUT
+          if [ -z "$ROM_OUTPUT" ] || [ ! -f "$ROM_OUTPUT" ]; then
+            echo "⚠️  ROM_OUTPUT chưa được set, đang auto-detect..."
+            ROM_OUTPUT=$(find "$ZK_HOME" -maxdepth 5 -name "*.zip" \
+              ! -name "${ZK_NAME}.zip" \
+              ! -path "*/ROM/${ZK_NAME}.zip" \
+              | head -1)
           fi
 
           if [ -z "$ROM_OUTPUT" ] || [ ! -f "$ROM_OUTPUT" ]; then
+            echo "::error::Không tìm được ROM output sau build. ROM_OUTPUT='$ROM_OUTPUT'"
             echo "BUILD_STATUS=failed" >> $GITHUB_ENV
             exit 1
           fi
 
-          echo "BUILD_STATUS=success" >> $GITHUB_ENV
           echo "ROM_OUTPUT=$ROM_OUTPUT" >> $GITHUB_ENV
+          echo "✅ BUILD_STATUS=success"
+          echo "✅ ROM_OUTPUT=$ROM_OUTPUT"
+          echo "✅ ROM size: $(du -sh "$ROM_OUTPUT" | cut -f1)"
 
-      - name: Upload Pixeldrain
-        if: ${{ github.event.inputs.UPLOAD_PIXELDRAIN == 'true' }}
-        continue-on-error: true
-        run: |
-          RES=$(curl -sf -u ":${{ secrets.PIXELDRAIN_API_KEY }}" \
-            -F "file=@${ROM_OUTPUT}" \
-            "https://pixeldrain.com/api/file")
-
-          ID=$(echo "$RES" | jq -r '.id')
-
-          echo "PIXEL_LINK=https://pixeldrain.com/u/$ID" >> $GITHUB_ENV
-          echo "PIXEL_BYPASS=https://cdn.pixeldrain.eu.cc/$ID" >> $GITHUB_ENV
-
-      - name: Upload Gofile
-        if: ${{ github.event.inputs.UPLOAD_GOFILE == 'true' }}
-        continue-on-error: true
-        run: |
-          RES=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.GOFILE_TOKEN }}" \
-            -F "file=@${ROM_OUTPUT}" \
-            https://upload.gofile.io/uploadfile)
-
-          LINK=$(echo "$RES" | jq -r '.data.downloadPage')
-          echo "GOFILE_LINK=$LINK" >> $GITHUB_ENV
-
-      - name: Upload SourceForge
+      # ─────────────────────────────────────────────
+      # 7. UPLOAD — SOURCEFORGE
+      # ─────────────────────────────────────────────
+      - name: Upload to SourceForge
         if: ${{ github.event.inputs.UPLOAD_SF == 'true' }}
         continue-on-error: true
         run: |
-          echo "${{ secrets.SF_SSH_KEY_2 }}" > key
-          chmod 600 key
+          echo "📤 Uploading lên SourceForge..."
+          echo "${{ secrets.SF_SSH_KEY_2 }}" > /tmp/sf_key && chmod 600 /tmp/sf_key
 
-          DEST="/home/frs/project/zkosfork/ROM/"
-          ssh -i key -o StrictHostKeyChecking=no hzzmonet@frs.sourceforge.net "mkdir -p $DEST"
+          SF_DEST="hzzmonet@frs.sourceforge.net:/home/frs/project/zkosfork/ProjectZK-FK/ZK-CN/"
+          SF_BASE="https://sourceforge.net/projects/zkosfork/files/ProjectZK-FK/ZK-CN"
+          if [ -f "$ZK_HOME/is_global" ]; then
+            SF_DEST="hzzmonet@frs.sourceforge.net:/home/frs/project/zkosfork/ProjectZK-FK/ZK-MI/"
+            SF_BASE="https://sourceforge.net/projects/zkosfork/files/ProjectZK-FK/ZK-MI"
+          fi
 
-          rsync -avP -e "ssh -i key -o StrictHostKeyChecking=no" \
-            "$ROM_OUTPUT" \
-            "hzzmonet@frs.sourceforge.net:$DEST"
+          if rsync -a -e "ssh -i /tmp/sf_key -o StrictHostKeyChecking=no" \
+              "$ROM_OUTPUT" "$SF_DEST"; then
+            SF_LINK="${SF_BASE}/$(basename "$ROM_OUTPUT")/download"
+            echo "SF_LINK=$SF_LINK" >> $GITHUB_ENV
+            echo "✅ SF_LINK=$SF_LINK"
+          else
+            echo "::warning::SourceForge upload thất bại"
+          fi
 
-          echo "SF_LINK=https://sourceforge.net/projects/zkosfork/files/ROM/$(basename "$ROM_OUTPUT")/download" >> $GITHUB_ENV
-
-      - name: Upload Google Drive
+      # ─────────────────────────────────────────────
+      # 8. UPLOAD — GOOGLE DRIVE
+      # ─────────────────────────────────────────────
+      - name: Upload to Google Drive
         if: ${{ github.event.inputs.UPLOAD_GDRIVE == 'true' }}
         continue-on-error: true
         run: |
-          mkdir -p ~/.config/rclone
-          echo '${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}' > ~/.config/rclone/sa.json
+          echo "📤 Uploading lên Google Drive..."
+          echo "${{ secrets.GDRIVE_CREDENTIALS }}" > /tmp/gdrive_creds.json
 
-          cat > ~/.config/rclone/rclone.conf <<EOF
-          [gdrive]
-          type = drive
-          scope = drive
-          service_account_file = ~/.config/rclone/sa.json
-          root_folder_id = ${{ secrets.GDRIVE_FOLDER_ID }}
-          EOF
-
-          rclone copy "$ROM_OUTPUT" gdrive:
-
-      - name: Telegram
-        if: always()
-        run: |
-          FILE=$(basename "${ROM_OUTPUT:-unknown}")
-
-          if [ "$BUILD_STATUS" = "failed" ]; then
-            TEXT="❌ Build FAILED%0AFile: $FILE"
+          GDRIVE_LINK=$(python3 "$ZK_HOME/upload.py" "$ROM_OUTPUT" /tmp/gdrive_creds.json 2>&1 | tail -1)
+          if [ -n "$GDRIVE_LINK" ] && [[ "$GDRIVE_LINK" == http* ]]; then
+            echo "GDRIVE_LINK=$GDRIVE_LINK" >> $GITHUB_ENV
+            echo "✅ GDRIVE_LINK=$GDRIVE_LINK"
           else
-            TEXT="📦 New Build%0AFile: $FILE"
+            echo "::warning::GDrive upload thất bại hoặc link không hợp lệ: $GDRIVE_LINK"
           fi
 
-          KB=$(jq -n '[]')
+      # ─────────────────────────────────────────────
+      # 9. UPLOAD — GOFILE
+      # ─────────────────────────────────────────────
+      - name: Upload to Gofile
+        if: ${{ github.event.inputs.UPLOAD_GOFILE == 'true' }}
+        continue-on-error: true
+        run: |
+          echo "📤 Uploading lên Gofile..."
+          SERVER=$(curl -sf "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
+          if [ -z "$SERVER" ] || [ "$SERVER" = "null" ]; then
+            echo "::warning::Không lấy được Gofile server"
+          else
+            RESPONSE=$(curl -sf \
+              -H "Authorization: Bearer ${{ secrets.GOFILE_API_KEY }}" \
+              -F "file=@${ROM_OUTPUT}" \
+              "https://${SERVER}.gofile.io/contents/uploadfile")
+            GOFILE_LINK=$(echo "$RESPONSE" | jq -r '.data.downloadPage // empty')
+            if [ -n "$GOFILE_LINK" ]; then
+              echo "GOFILE_LINK=$GOFILE_LINK" >> $GITHUB_ENV
+              echo "✅ GOFILE_LINK=$GOFILE_LINK"
+            else
+              echo "::warning::Gofile upload thất bại: $RESPONSE"
+            fi
+          fi
 
-          add() {
-            KB=$(echo "$KB" | jq --arg t "$1" --arg u "$2" '. += [[{"text":$t,"url":$u}]]')
+      # ─────────────────────────────────────────────
+      # 10. UPLOAD — PIXELDRAIN (+ CDN bypass)
+      # ─────────────────────────────────────────────
+      - name: Upload to Pixeldrain
+        if: ${{ github.event.inputs.UPLOAD_PIXELDRAIN == 'true' }}
+        continue-on-error: true
+        run: |
+          echo "📤 Uploading lên Pixeldrain..."
+          RESPONSE=$(curl -sf \
+            -u ":${{ secrets.PIXELDRAIN_API_KEY }}" \
+            -F "file=@${ROM_OUTPUT}" \
+            "https://pixeldrain.com/api/file")
+          PD_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+
+          if [ -n "$PD_ID" ]; then
+            PIXEL_LINK="https://pixeldrain.com/u/${PD_ID}"
+            PIXEL_CDN="https://cdn.pixeldrain.eu.cc/${PD_ID}"
+            echo "PIXEL_LINK=$PIXEL_LINK" >> $GITHUB_ENV
+            echo "PIXEL_CDN=$PIXEL_CDN"   >> $GITHUB_ENV
+            echo "✅ PIXEL_LINK=$PIXEL_LINK"
+            echo "✅ PIXEL_CDN=$PIXEL_CDN"
+          else
+            echo "::warning::Pixeldrain upload thất bại: $RESPONSE"
+          fi
+
+      # ─────────────────────────────────────────────
+      # 11. TELEGRAM — SUCCESS
+      # ─────────────────────────────────────────────
+      - name: Telegram Notification — Success
+        if: success()
+        run: |
+          ROM_FILENAME=$(basename "${ROM_OUTPUT}")
+          ROM_SIZE=$(du -sh "$ROM_OUTPUT" 2>/dev/null | cut -f1 || echo "?")
+
+          echo "## ✅ Build Thành Công" >> $GITHUB_STEP_SUMMARY
+          echo "**File:** \`${ROM_FILENAME}\`  |  **Size:** ${ROM_SIZE}" >> $GITHUB_STEP_SUMMARY
+          [ -n "$SF_LINK" ]     && echo "- 📥 SourceForge: $SF_LINK"      >> $GITHUB_STEP_SUMMARY
+          [ -n "$GDRIVE_LINK" ] && echo "- 📥 Google Drive: $GDRIVE_LINK" >> $GITHUB_STEP_SUMMARY
+          [ -n "$GOFILE_LINK" ] && echo "- 📥 Gofile: $GOFILE_LINK"       >> $GITHUB_STEP_SUMMARY
+          [ -n "$PIXEL_LINK" ]  && echo "- 📥 Pixeldrain: $PIXEL_LINK"    >> $GITHUB_STEP_SUMMARY
+          [ -n "$PIXEL_CDN" ]   && echo "- ⚡ Pixeldrain CDN: $PIXEL_CDN" >> $GITHUB_STEP_SUMMARY
+
+          # Build inline keyboard
+          KEYBOARD=$(jq -n '[]')
+          add_btn() {
+            KEYBOARD=$(echo "$KEYBOARD" | jq --arg l "$1" --arg u "$2" \
+              '. += [[{"text":$l,"url":$u}]]')
           }
+          [ -n "$SF_LINK" ]     && add_btn "📥 SourceForge"   "$SF_LINK"
+          [ -n "$GDRIVE_LINK" ] && add_btn "📥 Google Drive"  "$GDRIVE_LINK"
+          [ -n "$GOFILE_LINK" ] && add_btn "📥 Gofile"        "$GOFILE_LINK"
+          [ -n "$PIXEL_LINK" ]  && add_btn "📥 Pixeldrain"    "$PIXEL_LINK"
+          [ -n "$PIXEL_CDN" ]   && add_btn "⚡ Pixeldrain CDN" "$PIXEL_CDN"
 
-          [ -n "$PIXEL_LINK" ] && add "Pixeldrain" "$PIXEL_LINK"
-          [ -n "$PIXEL_BYPASS" ] && add "Bypass" "$PIXEL_BYPASS"
-          [ -n "$GOFILE_LINK" ] && add "Gofile" "$GOFILE_LINK"
-          [ -n "$SF_LINK" ] && add "SourceForge" "$SF_LINK"
+          TG_TEXT="✅ <b>Build Thành Công!</b>
+📦 <b>File:</b> <code>${ROM_FILENAME}</code>
+💾 <b>Size:</b> ${ROM_SIZE}"
 
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n \
-              --arg chat "${{ secrets.TELEGRAM_TO }}" \
-              --arg text "$TEXT" \
-              --argjson kb "$KB" \
-              '{chat_id:$chat,text:$text,parse_mode:"HTML",reply_markup:{inline_keyboard:$kb}}')"
+          PAYLOAD=$(jq -n \
+            --arg chat "${{ secrets.TELEGRAM_TO }}" \
+            --arg text "$TG_TEXT" \
+            --argjson kb "$KEYBOARD" \
+            '{chat_id:$chat, parse_mode:"HTML", text:$text,
+              reply_markup:{inline_keyboard:$kb}}')
 
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" -d "$PAYLOAD"
+
+      # ─────────────────────────────────────────────
+      # 12. TELEGRAM — FAILURE
+      # ─────────────────────────────────────────────
+      - name: Telegram Notification — Failure
+        if: failure()
+        run: |
+          echo "## ❌ Build Thất Bại" >> $GITHUB_STEP_SUMMARY
+          echo "**ROM:** \`${ZK_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+          LOG_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          TG_TEXT="❌ <b>Build Thất Bại!</b>
+📦 <b>ROM:</b> <code>${ZK_NAME}</code>
+🔗 <a href=\"${LOG_URL}\">Xem log chi tiết</a>"
+
+          PAYLOAD=$(jq -n \
+            --arg chat "${{ secrets.TELEGRAM_TO }}" \
+            --arg text "$TG_TEXT" \
+            --arg log_url "$LOG_URL" \
+            '{chat_id:$chat, parse_mode:"HTML", text:$text,
+              reply_markup:{inline_keyboard:[[{"text":"🔍 Xem Log","url":$log_url}]]}}')
+
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" -d "$PAYLOAD"
+
+      # ─────────────────────────────────────────────
+      # 13. CLEANUP
+      # ─────────────────────────────────────────────
       - name: Cleanup
         if: always()
-        run: rm -rf builder key
+        run: |
+          sudo rm -rf "$ZK_HOME" /tmp/sf_key /tmp/gdrive_creds.json || true
