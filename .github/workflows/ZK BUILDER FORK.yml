@@ -159,7 +159,7 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
 
-          git clone -b hzz --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+          git clone -b test --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
           mkdir -p "$ZK_HOME/ROM"
           mv -f "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" "$ZK_HOME/ROM/${ZK_NAME}.zip"
           sudo chmod -R +x "$ZK_HOME"
