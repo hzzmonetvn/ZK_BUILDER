@@ -11,14 +11,10 @@ on:
         required: true
       URL2:
         description: "FASTBOOT ROM URL (opt)"
-      UPLOAD_SF:
-        description: "Upload to SourceForge"
-        type: boolean
-        default: false
-      UPLOAD_GDRIVE:
-        description: "Upload to Google Drive"
-        type: boolean
-        default: false
+      BRANCH:
+        description: "Branch ZK_AUTO_BUILD (main, stock, hzz...)"
+        required: true
+        default: "hzz"
       UPLOAD_GOFILE:
         description: "Upload to Gofile"
         type: boolean
@@ -32,15 +28,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # ─────────────────────────────────────────────
-      # 1. CHECKOUT
-      # ─────────────────────────────────────────────
       - name: Checkout main
         uses: actions/checkout@v4
 
-      # ─────────────────────────────────────────────
-      # 2. DISK SPACE CHECK + CLEANUP
-      # ─────────────────────────────────────────────
       - name: Check free disk space
         id: diskcheck
         run: |
@@ -64,19 +54,14 @@ jobs:
           remove-large-packages: 'true'
           remove-cached-tools: 'true'
 
-      # ─────────────────────────────────────────────
-      # 3. SETUP + PARSE ROM NAME
-      # ─────────────────────────────────────────────
       - name: Setup build environment
         run: |
           sudo timedatectl set-timezone UTC
           sudo apt-get update > /dev/null 2>&1
           sudo apt-get install -y \
             android-sdk-libsparse-utils aria2 device-tree-compiler erofs-utils \
-            g++ gcc git lz4 openjdk-17-jdk openjdk-17-jdk-headless openssh-client \
-            p7zip-full python-is-python3 python3 python3-pip xz-utils zip zlib1g-dev \
-            > /dev/null 2>&1
-          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+            g++ gcc git jq lz4 openjdk-17-jdk openjdk-17-jdk-headless openssh-client \
+            p7zip-full python-is-python3 python3 python3-pip rsync xz-utils zip zlib1g-dev \
             > /dev/null 2>&1
 
           DATE=$(TZ=UTC date +"%y%m%d")
@@ -105,12 +90,9 @@ jobs:
           fi
 
           echo "✅ ZK_NAME=$ZK_NAME  DEVICE=$DEVICE"
-          echo "ZK_NAME=$ZK_NAME"   >> $GITHUB_ENV
-          echo "DEVICE=$DEVICE"     >> $GITHUB_ENV
+          echo "ZK_NAME=$ZK_NAME" >> $GITHUB_ENV
+          echo "DEVICE=$DEVICE" >> $GITHUB_ENV
 
-      # ─────────────────────────────────────────────
-      # 4. DOWNLOAD ROM + DETECT SUPER SIZE
-      # ─────────────────────────────────────────────
       - name: Download ROM files
         run: |
           mkdir -p "$GITHUB_WORKSPACE/ROM" && cd "$GITHUB_WORKSPACE/ROM"
@@ -146,9 +128,6 @@ jobs:
 
           echo "SUPER_SIZE=$super_size" >> $GITHUB_ENV
 
-      # ─────────────────────────────────────────────
-      # 5. CLONE BUILD SOURCES VIA SSH
-      # ─────────────────────────────────────────────
       - name: Clone ZK AUTO BUILD sources
         run: |
           ZK_HOME="/home/runner/work/ZK_AUTO_BUILD/ZK_AUTO_BUILD"
@@ -159,15 +138,16 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
 
-          git clone -b hzz --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+          BRANCH="${{ github.event.inputs.BRANCH }}"
+          echo "🌿 Cloning branch: $BRANCH"
+
+          git clone -b "$BRANCH" --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+
           mkdir -p "$ZK_HOME/ROM"
           mv -f "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" "$ZK_HOME/ROM/${ZK_NAME}.zip"
           sudo chmod -R +x "$ZK_HOME"
-          echo "✅ Đã clone sources"
+          echo "✅ Đã clone sources branch $BRANCH"
 
-      # ─────────────────────────────────────────────
-      # 6. BUILD — detect lỗi + auto-detect ROM_OUTPUT
-      # ─────────────────────────────────────────────
       - name: Build ProjectZK ROM
         id: build
         run: |
@@ -182,10 +162,8 @@ jobs:
             exit 1
           fi
 
-          # Re-source để lấy ROM_OUTPUT từ build.sh (nếu nó đã set)
           source "$GITHUB_ENV" 2>/dev/null || true
 
-          # Auto-detect nếu build.sh không set ROM_OUTPUT
           if [ -z "$ROM_OUTPUT" ] || [ ! -f "$ROM_OUTPUT" ]; then
             echo "⚠️  ROM_OUTPUT chưa được set, đang auto-detect..."
             ROM_OUTPUT=$(find "$ZK_HOME" -maxdepth 5 -name "*.zip" \
@@ -205,53 +183,6 @@ jobs:
           echo "✅ ROM_OUTPUT=$ROM_OUTPUT"
           echo "✅ ROM size: $(du -sh "$ROM_OUTPUT" | cut -f1)"
 
-      # ─────────────────────────────────────────────
-      # 7. UPLOAD — SOURCEFORGE
-      # ─────────────────────────────────────────────
-      - name: Upload to SourceForge
-        if: ${{ github.event.inputs.UPLOAD_SF == 'true' }}
-        continue-on-error: true
-        run: |
-          echo "📤 Uploading lên SourceForge..."
-          echo "${{ secrets.SF_SSH_KEY_2 }}" > /tmp/sf_key && chmod 600 /tmp/sf_key
-
-          SF_DEST="hzzmonet@frs.sourceforge.net:/home/frs/project/zkosfork/ProjectZK-FK/ZK-CN/"
-          SF_BASE="https://sourceforge.net/projects/zkosfork/files/ProjectZK-FK/ZK-CN"
-          if [ -f "$ZK_HOME/is_global" ]; then
-            SF_DEST="hzzmonet@frs.sourceforge.net:/home/frs/project/zkosfork/ProjectZK-FK/ZK-MI/"
-            SF_BASE="https://sourceforge.net/projects/zkosfork/files/ProjectZK-FK/ZK-MI"
-          fi
-
-          if rsync -a -e "ssh -i /tmp/sf_key -o StrictHostKeyChecking=no" \
-              "$ROM_OUTPUT" "$SF_DEST"; then
-            SF_LINK="${SF_BASE}/$(basename "$ROM_OUTPUT")/download"
-            echo "SF_LINK=$SF_LINK" >> $GITHUB_ENV
-            echo "✅ SF_LINK=$SF_LINK"
-          else
-            echo "::warning::SourceForge upload thất bại"
-          fi
-
-      # ─────────────────────────────────────────────
-      # 8. UPLOAD — GOOGLE DRIVE
-      # ─────────────────────────────────────────────
-      - name: Upload to Google Drive
-        if: ${{ github.event.inputs.UPLOAD_GDRIVE == 'true' }}
-        continue-on-error: true
-        run: |
-          echo "📤 Uploading lên Google Drive..."
-          echo "${{ secrets.GDRIVE_CREDENTIALS }}" > /tmp/gdrive_creds.json
-
-          GDRIVE_LINK=$(python3 "$ZK_HOME/upload.py" "$ROM_OUTPUT" /tmp/gdrive_creds.json 2>&1 | tail -1)
-          if [ -n "$GDRIVE_LINK" ] && [[ "$GDRIVE_LINK" == http* ]]; then
-            echo "GDRIVE_LINK=$GDRIVE_LINK" >> $GITHUB_ENV
-            echo "✅ GDRIVE_LINK=$GDRIVE_LINK"
-          else
-            echo "::warning::GDrive upload thất bại hoặc link không hợp lệ: $GDRIVE_LINK"
-          fi
-
-      # ─────────────────────────────────────────────
-      # 9. UPLOAD — GOFILE
-      # ─────────────────────────────────────────────
       - name: Upload to Gofile
         if: ${{ github.event.inputs.UPLOAD_GOFILE == 'true' }}
         continue-on-error: true
@@ -274,9 +205,6 @@ jobs:
             fi
           fi
 
-      # ─────────────────────────────────────────────
-      # 10. UPLOAD — PIXELDRAIN (+ CDN bypass)
-      # ─────────────────────────────────────────────
       - name: Upload to Pixeldrain
         if: ${{ github.event.inputs.UPLOAD_PIXELDRAIN == 'true' }}
         continue-on-error: true
@@ -292,7 +220,7 @@ jobs:
             PIXEL_LINK="https://pixeldrain.com/u/${PD_ID}"
             PIXEL_CDN="https://cdn.pixeldrain.eu.cc/${PD_ID}"
             echo "PIXEL_LINK=$PIXEL_LINK" >> $GITHUB_ENV
-            echo "PIXEL_CDN=$PIXEL_CDN"   >> $GITHUB_ENV
+            echo "PIXEL_CDN=$PIXEL_CDN" >> $GITHUB_ENV
             echo "✅ PIXEL_LINK=$PIXEL_LINK"
             echo "✅ PIXEL_CDN=$PIXEL_CDN"
           else
@@ -313,11 +241,9 @@ jobs:
               '. += [[{"text":$l,"url":$u}]]')
           }
 
-          [ -n "${SF_LINK}"     ] && append_btn "📥 SourceForge" "$SF_LINK"
-          [ -n "${GDRIVE_LINK}" ] && append_btn "📥 Google Drive" "$GDRIVE_LINK"
           [ -n "${GOFILE_LINK}" ] && append_btn "📥 Gofile" "$GOFILE_LINK"
-          [ -n "${PIXEL_LINK}"  ] && append_btn "📥 Pixeldrain" "$PIXEL_LINK"
-          [ -n "${PIXEL_CDN}"   ] && append_btn "⚡ Pixeldrain CDN" "$PIXEL_CDN"
+          [ -n "${PIXEL_LINK}" ] && append_btn "📥 Pixeldrain" "$PIXEL_LINK"
+          [ -n "${PIXEL_CDN}" ] && append_btn "⚡ Pixeldrain CDN" "$PIXEL_CDN"
 
           TG_TEXT=$(printf '✅ <b>Build Thành Công!</b>\n📦 <b>File:</b> <code>%s</code>\n💾 <b>Size:</b> %s' \
             "$ROM_FILENAME" "$ROM_SIZE")
@@ -356,4 +282,4 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          sudo rm -rf "$ZK_HOME" /tmp/sf_key /tmp/gdrive_creds.json || true
+          sudo rm -rf "$ZK_HOME" || true
