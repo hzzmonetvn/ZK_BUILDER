@@ -1,0 +1,30 @@
+name: Telegram Action Bot
+
+permissions:
+  contents: read
+  actions: write
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: telegram-action-bot
+  cancel-in-progress: true
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Telegram bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_FILE: ZK BUILDER FORK.yml
+          WORKFLOW_REF: main
+        run: python3 bot/telegram_action_bot.py
