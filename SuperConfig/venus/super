@@ -1,0 +1,153 @@
+{
+    "metadata_version": "10.2",
+    "metadata_size": 1232,
+    "metadata_max_size": 65536,
+    "metadata_slot_count": 3,
+    "header_flags": "virtual_ab_device",
+    "block_devices": [
+        {
+            "name": "super",
+            "first_sector": 2048,
+            "size": 9126805504,
+            "block_size": 4096,
+            "flags": "none",
+            "alignment": 1048576,
+            "alignment_offset": 0
+        }
+    ],
+    "group_table": [
+        {
+            "name": "default",
+            "maximum_size": 0,
+            "flags": "none"
+        },
+        {
+            "name": "qti_dynamic_partitions_a",
+            "maximum_size": 9073118412,
+            "flags": "none"
+        },
+        {
+            "name": "qti_dynamic_partitions_b",
+            "maximum_size": 9073118412,
+            "flags": "none"
+        }
+    ],
+    "partition_table": [
+        {
+            "name": "odm_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 17825792,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 34815 linear super 2048"
+            ]
+        },
+        {
+            "name": "odm_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 4492607488,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "product_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 4492607488,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 8774623 linear super 36864"
+            ]
+        },
+        {
+            "name": "product_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 715182080,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "system_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 715182080,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 1396839 linear super 8812544"
+            ]
+        },
+        {
+            "name": "system_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 578764800,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "system_ext_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 578764800,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 1130399 linear super 10211328"
+            ]
+        },
+        {
+            "name": "system_ext_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 1440866304,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "vendor_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 1440866304,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 2814191 linear super 11341824"
+            ]
+        },
+        {
+            "name": "vendor_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 147456,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "mi_ext_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 147456,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 287 linear super 14157824"
+            ]
+        },
+        {
+            "name": "mi_ext_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 0,
+            "attributes": "readonly",
+            "extents": []
+        }
+    ],
+    "partition_layout": [
+        "super: 2048 .. 36864: odm_a (34816 sectors)",
+        "super: 36864 .. 8811488: product_a (8774624 sectors)",
+        "super: 8812544 .. 10209384: system_a (1396840 sectors)",
+        "super: 10211328 .. 11341728: system_ext_a (1130400 sectors)",
+        "super: 11341824 .. 14156016: vendor_a (2814192 sectors)",
+        "super: 14157824 .. 14158112: mi_ext_a (288 sectors)"
+    ]
+}

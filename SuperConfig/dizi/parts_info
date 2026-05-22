@@ -1,0 +1,181 @@
+{
+    "super_info": {
+        "metadata_version": "10.2",
+        "metadata_size": 1360,
+        "metadata_max_size": 65536,
+        "metadata_slot_count": 3,
+        "header_flags": "virtual_ab_device",
+        "block_devices": [
+            {
+                "name": "super",
+                "first_sector": 2048,
+                "size": 9126805504,
+                "block_size": 4096,
+                "flags": "none",
+                "alignment": 1048576,
+                "alignment_offset": 0
+            }
+        ],
+        "group_table": [
+            {
+                "name": "default",
+                "maximum_size": 0,
+                "flags": "none"
+            },
+            {
+                "name": "qti_dynamic_partitions_a",
+                "maximum_size": 9116319744,
+                "flags": "none"
+            },
+            {
+                "name": "qti_dynamic_partitions_b",
+                "maximum_size": 9116319744,
+                "flags": "none"
+            }
+        ],
+        "partition_table": [
+            {
+                "name": "odm_a",
+                "group_name": "qti_dynamic_partitions_a",
+                "is_dynamic": true,
+                "size": 23588864,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 46071 linear super 2048"
+                ]
+            },
+            {
+                "name": "odm_b",
+                "group_name": "qti_dynamic_partitions_b",
+                "is_dynamic": true,
+                "size": 4255772672,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "product_a",
+                "group_name": "qti_dynamic_partitions_a",
+                "is_dynamic": true,
+                "size": 4255772672,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 8312055 linear super 49152"
+                ]
+            },
+            {
+                "name": "product_b",
+                "group_name": "qti_dynamic_partitions_b",
+                "is_dynamic": true,
+                "size": 904994816,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "system_a",
+                "group_name": "qti_dynamic_partitions_a",
+                "is_dynamic": true,
+                "size": 904994816,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 1767567 linear super 8361984"
+                ]
+            },
+            {
+                "name": "system_b",
+                "group_name": "qti_dynamic_partitions_b",
+                "is_dynamic": true,
+                "size": 846700544,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "system_ext_a",
+                "group_name": "qti_dynamic_partitions_a",
+                "is_dynamic": true,
+                "size": 846700544,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 1653711 linear super 10131456"
+                ]
+            },
+            {
+                "name": "system_ext_b",
+                "group_name": "qti_dynamic_partitions_b",
+                "is_dynamic": true,
+                "size": 738922496,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "vendor_a",
+                "group_name": "qti_dynamic_partitions_a",
+                "is_dynamic": true,
+                "size": 738922496,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 1443207 linear super 11786240"
+                ]
+            },
+            {
+                "name": "vendor_b",
+                "group_name": "qti_dynamic_partitions_b",
+                "is_dynamic": true,
+                "size": 34029568,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "vendor_dlkm_a",
+                "group_name": "qti_dynamic_partitions_a",
+                "is_dynamic": true,
+                "size": 34029568,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 66463 linear super 13230080"
+                ]
+            },
+            {
+                "name": "vendor_dlkm_b",
+                "group_name": "qti_dynamic_partitions_b",
+                "is_dynamic": true,
+                "size": 217088,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "mi_ext_a",
+                "group_name": "qti_dynamic_partitions_a",
+                "is_dynamic": true,
+                "size": 217088,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 423 linear super 13297664"
+                ]
+            },
+            {
+                "name": "mi_ext_b",
+                "group_name": "qti_dynamic_partitions_b",
+                "is_dynamic": true,
+                "size": 0,
+                "attributes": "readonly",
+                "extents": []
+            }
+        ],
+        "partition_layout": [
+            "super: 2048 .. 48120: odm_a (46072 sectors)",
+            "super: 49152 .. 8361208: product_a (8312056 sectors)",
+            "super: 8361984 .. 10129552: system_a (1767568 sectors)",
+            "super: 10131456 .. 11785168: system_ext_a (1653712 sectors)",
+            "super: 11786240 .. 13229448: vendor_a (1443208 sectors)",
+            "super: 13230080 .. 13296544: vendor_dlkm_a (66464 sectors)",
+            "super: 13297664 .. 13298088: mi_ext_a (424 sectors)"
+        ]
+    },
+    "mi_ext": "erofs",
+    "odm": "erofs",
+    "product": "erofs",
+    "system": "erofs",
+    "system_ext": "erofs",
+    "vendor": "erofs",
+    "vendor_dlkm": "erofs"
+}

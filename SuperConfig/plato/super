@@ -1,0 +1,191 @@
+{
+    "metadata_version": "10.2",
+    "metadata_size": 1488,
+    "metadata_max_size": 65536,
+    "metadata_slot_count": 3,
+    "header_flags": "virtual_ab_device",
+    "block_devices": [
+        {
+            "name": "super",
+            "first_sector": 2048,
+            "size": 9126805504,
+            "block_size": 4096,
+            "flags": "none",
+            "alignment": 1048576,
+            "alignment_offset": 0
+        }
+    ],
+    "group_table": [
+        {
+            "name": "default",
+            "maximum_size": 0,
+            "flags": "none"
+        },
+        {
+            "name": "main_a",
+            "maximum_size": 9116319744,
+            "flags": "none"
+        },
+        {
+            "name": "main_b",
+            "maximum_size": 9116319744,
+            "flags": "none"
+        }
+    ],
+    "partition_table": [
+        {
+            "name": "odm_a",
+            "group_name": "main_a",
+            "is_dynamic": true,
+            "size": 17932288,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 35023 linear super 2048"
+            ]
+        },
+        {
+            "name": "odm_b",
+            "group_name": "main_b",
+            "is_dynamic": true,
+            "size": 348160,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "odm_dlkm_a",
+            "group_name": "main_a",
+            "is_dynamic": true,
+            "size": 348160,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 679 linear super 38912"
+            ]
+        },
+        {
+            "name": "odm_dlkm_b",
+            "group_name": "main_b",
+            "is_dynamic": true,
+            "size": 3336531968,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "product_a",
+            "group_name": "main_a",
+            "is_dynamic": true,
+            "size": 3336531968,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 6516663 linear super 40960"
+            ]
+        },
+        {
+            "name": "product_b",
+            "group_name": "main_b",
+            "is_dynamic": true,
+            "size": 837582848,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "system_a",
+            "group_name": "main_a",
+            "is_dynamic": true,
+            "size": 837582848,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 1635903 linear super 6557696"
+            ]
+        },
+        {
+            "name": "system_b",
+            "group_name": "main_b",
+            "is_dynamic": true,
+            "size": 743751680,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "system_ext_a",
+            "group_name": "main_a",
+            "is_dynamic": true,
+            "size": 743751680,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 1452639 linear super 8194048"
+            ]
+        },
+        {
+            "name": "system_ext_b",
+            "group_name": "main_b",
+            "is_dynamic": true,
+            "size": 2079305728,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "vendor_a",
+            "group_name": "main_a",
+            "is_dynamic": true,
+            "size": 2079305728,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 4061143 linear super 9648128"
+            ]
+        },
+        {
+            "name": "vendor_b",
+            "group_name": "main_b",
+            "is_dynamic": true,
+            "size": 19750912,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "vendor_dlkm_a",
+            "group_name": "main_a",
+            "is_dynamic": true,
+            "size": 19750912,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 38575 linear super 13709312"
+            ]
+        },
+        {
+            "name": "vendor_dlkm_b",
+            "group_name": "main_b",
+            "is_dynamic": true,
+            "size": 639967232,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "mi_ext_a",
+            "group_name": "main_a",
+            "is_dynamic": true,
+            "size": 639967232,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 1249935 linear super 13748224"
+            ]
+        },
+        {
+            "name": "mi_ext_b",
+            "group_name": "main_b",
+            "is_dynamic": true,
+            "size": 0,
+            "attributes": "readonly",
+            "extents": []
+        }
+    ],
+    "partition_layout": [
+        "super: 2048 .. 37072: odm_a (35024 sectors)",
+        "super: 38912 .. 39592: odm_dlkm_a (680 sectors)",
+        "super: 40960 .. 6557624: product_a (6516664 sectors)",
+        "super: 6557696 .. 8193600: system_a (1635904 sectors)",
+        "super: 8194048 .. 9646688: system_ext_a (1452640 sectors)",
+        "super: 9648128 .. 13709272: vendor_a (4061144 sectors)",
+        "super: 13709312 .. 13747888: vendor_dlkm_a (38576 sectors)",
+        "super: 13748224 .. 14998160: mi_ext_a (1249936 sectors)"
+    ]
+}

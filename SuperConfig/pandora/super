@@ -1,0 +1,191 @@
+{
+    "metadata_version": "10.2",
+    "metadata_size": 1488,
+    "metadata_max_size": 65536,
+    "metadata_slot_count": 3,
+    "header_flags": "virtual_ab_device",
+    "block_devices": [
+        {
+            "name": "super",
+            "first_sector": 2048,
+            "size": 13421772800,
+            "block_size": 4096,
+            "flags": "none",
+            "alignment": 1048576,
+            "alignment_offset": 0
+        }
+    ],
+    "group_table": [
+        {
+            "name": "default",
+            "maximum_size": 0,
+            "flags": "none"
+        },
+        {
+            "name": "qti_dynamic_partitions_a",
+            "maximum_size": 13411287040,
+            "flags": "none"
+        },
+        {
+            "name": "qti_dynamic_partitions_b",
+            "maximum_size": 13411287040,
+            "flags": "none"
+        }
+    ],
+    "partition_table": [
+        {
+            "name": "odm_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 3547971584,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 6929631 linear super 2048"
+            ]
+        },
+        {
+            "name": "odm_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 4451328000,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "product_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 4451328000,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 8693999 linear super 6932480"
+            ]
+        },
+        {
+            "name": "product_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 911716352,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "system_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 911716352,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 1780695 linear super 15628288"
+            ]
+        },
+        {
+            "name": "system_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 16912384,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "system_dlkm_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 16912384,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 33031 linear super 17410048"
+            ]
+        },
+        {
+            "name": "system_dlkm_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 701333504,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "system_ext_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 701333504,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 1369791 linear super 17444864"
+            ]
+        },
+        {
+            "name": "system_ext_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 901758976,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "vendor_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 901758976,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 1761247 linear super 18814976"
+            ]
+        },
+        {
+            "name": "vendor_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 54013952,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "vendor_dlkm_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 54013952,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 105495 linear super 20576256"
+            ]
+        },
+        {
+            "name": "vendor_dlkm_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 110874624,
+            "attributes": "readonly",
+            "extents": []
+        },
+        {
+            "name": "mi_ext_a",
+            "group_name": "qti_dynamic_partitions_a",
+            "is_dynamic": true,
+            "size": 110874624,
+            "attributes": "readonly",
+            "extents": [
+                "0 .. 216551 linear super 20682752"
+            ]
+        },
+        {
+            "name": "mi_ext_b",
+            "group_name": "qti_dynamic_partitions_b",
+            "is_dynamic": true,
+            "size": 0,
+            "attributes": "readonly",
+            "extents": []
+        }
+    ],
+    "partition_layout": [
+        "super: 2048 .. 6931680: odm_a (6929632 sectors)",
+        "super: 6932480 .. 15626480: product_a (8694000 sectors)",
+        "super: 15628288 .. 17408984: system_a (1780696 sectors)",
+        "super: 17410048 .. 17443080: system_dlkm_a (33032 sectors)",
+        "super: 17444864 .. 18814656: system_ext_a (1369792 sectors)",
+        "super: 18814976 .. 20576224: vendor_a (1761248 sectors)",
+        "super: 20576256 .. 20681752: vendor_dlkm_a (105496 sectors)",
+        "super: 20682752 .. 20899304: mi_ext_a (216552 sectors)"
+    ]
+}

@@ -1,0 +1,201 @@
+{
+    "super_info": {
+        "metadata_version": "10.2",
+        "metadata_size": 1488,
+        "metadata_max_size": 65536,
+        "metadata_slot_count": 3,
+        "header_flags": "virtual_ab_device",
+        "block_devices": [
+            {
+                "name": "super",
+                "first_sector": 2048,
+                "size": 9126805504,
+                "block_size": 4096,
+                "flags": "none",
+                "alignment": 1048576,
+                "alignment_offset": 0
+            }
+        ],
+        "group_table": [
+            {
+                "name": "default",
+                "maximum_size": 0,
+                "flags": "none"
+            },
+            {
+                "name": "main_a",
+                "maximum_size": 9116319744,
+                "flags": "none"
+            },
+            {
+                "name": "main_b",
+                "maximum_size": 9116319744,
+                "flags": "none"
+            }
+        ],
+        "partition_table": [
+            {
+                "name": "odm_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 17850368,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 34863 linear super 2048"
+                ]
+            },
+            {
+                "name": "odm_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 348160,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "odm_dlkm_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 348160,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 679 linear super 38912"
+                ]
+            },
+            {
+                "name": "odm_dlkm_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 4437438464,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "product_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 4437438464,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 8666871 linear super 40960"
+                ]
+            },
+            {
+                "name": "product_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 802222080,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "system_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 802222080,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 1566839 linear super 8708096"
+                ]
+            },
+            {
+                "name": "system_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 668491776,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "system_ext_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 668491776,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 1305647 linear super 10276864"
+                ]
+            },
+            {
+                "name": "system_ext_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 2075631616,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "vendor_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 2075631616,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 4053967 linear super 11583488"
+                ]
+            },
+            {
+                "name": "vendor_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 19517440,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "vendor_dlkm_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 19517440,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 38119 linear super 15638528"
+                ]
+            },
+            {
+                "name": "vendor_dlkm_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 147456,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "mi_ext_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 147456,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 287 linear super 15677440"
+                ]
+            },
+            {
+                "name": "mi_ext_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 0,
+                "attributes": "readonly",
+                "extents": []
+            }
+        ],
+        "partition_layout": [
+            "super: 2048 .. 36912: odm_a (34864 sectors)",
+            "super: 38912 .. 39592: odm_dlkm_a (680 sectors)",
+            "super: 40960 .. 8707832: product_a (8666872 sectors)",
+            "super: 8708096 .. 10274936: system_a (1566840 sectors)",
+            "super: 10276864 .. 11582512: system_ext_a (1305648 sectors)",
+            "super: 11583488 .. 15637456: vendor_a (4053968 sectors)",
+            "super: 15638528 .. 15676648: vendor_dlkm_a (38120 sectors)",
+            "super: 15677440 .. 15677728: mi_ext_a (288 sectors)"
+        ]
+    },
+    "mi_ext": "erofs",
+    "odm": "erofs",
+    "odm_dlkm": "erofs",
+    "product": "erofs",
+    "system": "erofs",
+    "system_ext": "erofs",
+    "vendor": "erofs",
+    "vendor_dlkm": "erofs"
+}

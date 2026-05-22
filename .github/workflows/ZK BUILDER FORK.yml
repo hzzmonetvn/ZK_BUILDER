@@ -9,15 +9,12 @@ on:
       URL:
         description: "ROM URL (Stock OTA or Xiaomi.eu zip direct link)"
         required: true
-      URL2:
-        description: "FASTBOOT ROM URL for Stock if super_size missing (opt)"
-        required: false
       BRANCH:
-        description: "Branch ZK_AUTO_BUILD (hzz, stock, eu, hzzeu...)"
+        description: "Branch ZK_AUTO_BUILD (hzz, stock, eu, lite...)"
         required: true
         default: "hzz"
       MODE:
-        description: "Build mode: auto detects eu/hzzeu branch"
+        description: "Build mode: base eu or stock"
         type: choice
         options:
           - auto
@@ -43,6 +40,9 @@ jobs:
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          fetch-tags: false
 
       - name: Check free disk space
         id: diskcheck
@@ -88,10 +88,11 @@ jobs:
           ROM_NAME="${ROM_NAME%/download}"
 
           if [ "$MODE" = "auto" ]; then
-            case "$BRANCH" in
-              eu|hzzeu|*eu*) MODE="eu" ;;
-              *) MODE="stock" ;;
-            esac
+            if [[ "$ROM_NAME" == xiaomi.eu_* ]]; then
+              MODE="eu"
+            else
+              MODE="stock"
+            fi
           fi
 
           echo "ROM_URL=$ROM_URL" >> "$GITHUB_ENV"
@@ -147,7 +148,7 @@ jobs:
                 exit 1
               fi
             else
-              echo "::error::ROM stock không chứa '-OS'. Nếu là EU hãy chọn MODE=eu hoặc BRANCH=eu/hzzeu. ROM_NAME=$ROM_NAME"
+              echo "::error::ROM stock không chứa '-OS'. Nếu là EU hãy chọn MODE=eu hoặc BRANCH=eu. ROM_NAME=$ROM_NAME"
               exit 1
             fi
           fi
@@ -173,29 +174,29 @@ jobs:
               -o "${ZK_NAME}.zip" "$ROM_URL" \
               || { echo "::error::OTA download thất bại"; exit 1; }
 
-            super_json="super_size.json"
-            aria2c -q -o "$super_json" \
-              "https://github.com/zuri1503/ZK_BUILDER/releases/download/super-size/super_size.json" \
-              || touch "$super_json"
+            device_lc="$(printf '%s' "$DEVICE" | tr '[:upper:]' '[:lower:]')"
+            super_config_dir="$GITHUB_WORKSPACE/SuperConfig/$device_lc"
+            super_config_file="$super_config_dir/super"
+            parts_info_file="$super_config_dir/parts_info"
 
-            if jq -e --arg m "$DEVICE" '.[$m]' "$super_json" >/dev/null 2>&1; then
-              super_size=$(jq -r --arg m "$DEVICE" '.[$m].super_size' "$super_json")
-              echo "✅ Super size từ JSON: $super_size"
-            else
-              if [ -z "${{ github.event.inputs.URL2 }}" ]; then
-                echo "::error::Không có FASTBOOT URL và device $DEVICE không có trong super_size.json"
-                exit 1
-              fi
-              echo "⬇️ Downloading FASTBOOT để detect super size..."
-              timeout 9000 aria2c -s16 -x16 -j"$(nproc)" -c -U "Mozilla/5.0" \
-                -o "FASTBOOT.tgz" "${{ github.event.inputs.URL2 }}" \
-                || { echo "::error::FASTBOOT download thất bại"; exit 1; }
-              mkdir -p "FASTBOOT" && tar -xzf "FASTBOOT.tgz" -C "FASTBOOT" > /dev/null 2>&1
-              simg2img FASTBOOT/*/images/super.img "FASTBOOT/super.img"
-              super_size=$(stat -c %s "FASTBOOT/super.img")
-              echo "✅ Super size từ FASTBOOT: $super_size"
-              rm -rf FASTBOOT FASTBOOT.tgz
+            super_size=""
+            if [ -f "$super_config_file" ]; then
+              super_size=$(jq -r '.block_devices[]? | select(.name == "super") | .size // empty' "$super_config_file" | head -n1)
+              echo "✅ Super size từ SuperConfig/$device_lc/super: ${super_size:-empty}"
             fi
+
+            if [ -z "$super_size" ] && [ -f "$parts_info_file" ]; then
+              super_size=$(jq -r '.super_info.block_devices[]? | select(.name == "super") | .size // empty' "$parts_info_file" | head -n1)
+              echo "✅ Super size từ SuperConfig/$device_lc/parts_info: ${super_size:-empty}"
+            fi
+
+            if ! [[ "$super_size" =~ ^[0-9]+$ ]] || [ "$super_size" -le 0 ]; then
+              echo "::error::Không tìm được super size hợp lệ cho device '$DEVICE' trong SuperConfig/$device_lc. Cần file SuperConfig/$device_lc/super có .block_devices[].size."
+              echo "📁 Một số config hiện có:"
+              find "$GITHUB_WORKSPACE/SuperConfig" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | head -50
+              exit 1
+            fi
+
             echo "SUPER_SIZE=$super_size" >> "$GITHUB_ENV"
           fi
 
@@ -211,7 +212,8 @@ jobs:
           ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
 
           echo "🌿 Cloning ZK_AUTO_BUILD branch: $BRANCH"
-          git clone -b "$BRANCH" --depth=1 git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+          git clone --branch "$BRANCH" --single-branch --depth=1 --no-tags --filter=blob:none \
+            git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
 
           mkdir -p "$ZK_HOME/ROM"
           mv -f "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" "$ZK_HOME/ROM/${ZK_NAME}.zip"

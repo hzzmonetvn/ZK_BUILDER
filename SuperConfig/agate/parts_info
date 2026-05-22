@@ -1,0 +1,141 @@
+{
+    "super_info": {
+        "metadata_version": "10.2",
+        "metadata_size": 1104,
+        "metadata_max_size": 65536,
+        "metadata_slot_count": 3,
+        "header_flags": "virtual_ab_device",
+        "block_devices": [
+            {
+                "name": "super",
+                "first_sector": 2048,
+                "size": 9126805504,
+                "block_size": 4096,
+                "flags": "none",
+                "alignment": 1048576,
+                "alignment_offset": 0
+            }
+        ],
+        "group_table": [
+            {
+                "name": "default",
+                "maximum_size": 0,
+                "flags": "none"
+            },
+            {
+                "name": "main_a",
+                "maximum_size": 9122611200,
+                "flags": "none"
+            },
+            {
+                "name": "main_b",
+                "maximum_size": 9122611200,
+                "flags": "none"
+            }
+        ],
+        "partition_table": [
+            {
+                "name": "product_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 2729844736,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 5331727 linear super 2048"
+                ]
+            },
+            {
+                "name": "product_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 866058240,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "system_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 866058240,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 1691519 linear super 5335040"
+                ]
+            },
+            {
+                "name": "system_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 688517120,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "system_ext_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 688517120,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 1344759 linear super 7026688"
+                ]
+            },
+            {
+                "name": "system_ext_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 1519902720,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "vendor_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 1519902720,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 2968559 linear super 8372224"
+                ]
+            },
+            {
+                "name": "vendor_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 620609536,
+                "attributes": "readonly",
+                "extents": []
+            },
+            {
+                "name": "mi_ext_a",
+                "group_name": "main_a",
+                "is_dynamic": true,
+                "size": 620609536,
+                "attributes": "readonly",
+                "extents": [
+                    "0 .. 1212127 linear super 11341824"
+                ]
+            },
+            {
+                "name": "mi_ext_b",
+                "group_name": "main_b",
+                "is_dynamic": true,
+                "size": 0,
+                "attributes": "readonly",
+                "extents": []
+            }
+        ],
+        "partition_layout": [
+            "super: 2048 .. 5333776: product_a (5331728 sectors)",
+            "super: 5335040 .. 7026560: system_a (1691520 sectors)",
+            "super: 7026688 .. 8371448: system_ext_a (1344760 sectors)",
+            "super: 8372224 .. 11340784: vendor_a (2968560 sectors)",
+            "super: 11341824 .. 12553952: mi_ext_a (1212128 sectors)"
+        ]
+    },
+    "mi_ext": "erofs",
+    "product": "erofs",
+    "system": "erofs",
+    "system_ext": "erofs",
+    "vendor": "erofs"
+}
