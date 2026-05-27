@@ -1,32 +1,33 @@
 # ZK ROM Telegram Bot
 
-Bot này lấy danh sách ROM từ Google Drive mỗi 6 giờ, lưu quyền theo từng Telegram ID và từng device, rồi trả link ROM qua lệnh `/get <device>`.
+This bot syncs ROM files from a Google Drive folder every 6 hours, stores access permissions per Telegram ID and per device, and returns ROM links with `/get <device>`.
 
-## Chức năng
+## Features
 
-- Sync Google Drive folder định kỳ mỗi `21600` giây (6 giờ).
-- Admin cấp quyền bằng `/add <id tele> <device> [device2 ...]`.
-- Một user có thể có nhiều device, mỗi device là một dòng quyền riêng.
-- User lấy ROM bằng `/get <device>`.
-- User chưa được cấp quyền sẽ nhận thông báo liên hệ `@HzzMonet`.
-- Database dùng SQLite, không mất quyền khi bot restart.
+- Syncs the Google Drive folder every `21600` seconds (6 hours).
+- Admin grants access with `/add <telegram_id> <device> [device2 ...]`.
+- One user can own multiple devices; each device is stored as a separate permission.
+- Users get ROM links with `/get <device>`.
+- Unauthorized users are told to contact `@HzzMonet`.
+- Uses SQLite, so permissions survive bot restarts.
+- Bot replies are in English by default.
 
-## File name hỗ trợ
+## Supported file names
 
-Bot tự nhận device, region và ngày build từ tên kiểu:
+The bot detects device, region, and build date from file names like:
 
 ```text
 ZKOS_NEZHA_OS3.0.307.0.WPACNXM_CN260526.zip
 ZKOS_NEZHA_OS3.0.307.0.WPACNXM_EU260504.zip
 ```
 
-Trong ví dụ trên:
+For the examples above:
 
 - Device: `nezha`
-- Region: `CN` hoặc `EU`
-- Ngày build: `2026-05-26` hoặc `2026-05-04`
+- Region: `CN` or `EU`
+- Build date: `2026-05-26` or `2026-05-04`
 
-## Cài đặt
+## Install
 
 ```bash
 python3 -m venv .venv
@@ -37,22 +38,22 @@ nano .env
 python3 telegram_rom_bot.py
 ```
 
-## Biến môi trường
+## Environment variables
 
-| Biến | Bắt buộc | Ghi chú |
+| Variable | Required | Notes |
 | --- | --- | --- |
-| `BOT_TOKEN` | Có | Token lấy từ `@BotFather` |
-| `ADMIN_IDS` | Có | ID Telegram admin, ngăn cách bằng dấu phẩy hoặc khoảng trắng |
-| `DRIVE_FOLDER_ID` | Không | Mặc định là folder ROM đã cấu hình |
-| `GOOGLE_API_KEY` | Khuyến nghị | Dùng Google Drive API ổn định hơn scrape HTML public folder |
-| `CONTACT_USERNAME` | Không | Mặc định `@HzzMonet` |
-| `DB_PATH` | Không | Mặc định `rom_bot.sqlite3` |
-| `SYNC_INTERVAL_SECONDS` | Không | Mặc định `21600` |
-| `MAX_FILES_PER_REPLY` | Không | Mặc định `10` |
+| `BOT_TOKEN` | Yes | Token from `@BotFather` |
+| `ADMIN_IDS` | Yes | Admin Telegram IDs, separated by comma or space |
+| `DRIVE_FOLDER_ID` | No | Defaults to the configured ROM folder |
+| `GOOGLE_API_KEY` | Recommended | Uses the official Google Drive API; more stable than the public HTML fallback |
+| `CONTACT_USERNAME` | No | Defaults to `@HzzMonet` |
+| `DB_PATH` | No | Defaults to `rom_bot.sqlite3` |
+| `SYNC_INTERVAL_SECONDS` | No | Defaults to `21600` |
+| `MAX_FILES_PER_REPLY` | No | Defaults to `10` |
 
-Nên dùng `GOOGLE_API_KEY`. Nếu không có, bot sẽ thử đọc public Google Drive HTML, nhưng cách này phụ thuộc giao diện Google Drive nên kém ổn định hơn API chính thức.
+`GOOGLE_API_KEY` is recommended. Without it, the bot will try a best-effort public Google Drive HTML fallback, which can break if Google changes the Drive page layout.
 
-## Lệnh user
+## User commands
 
 ```text
 /id
@@ -61,7 +62,7 @@ Nên dùng `GOOGLE_API_KEY`. Nếu không có, bot sẽ thử đọc public Goog
 /get popsicle
 ```
 
-## Lệnh admin
+## Admin commands
 
 ```text
 /add 123456789 nezha
@@ -71,9 +72,9 @@ Nên dùng `GOOGLE_API_KEY`. Nếu không có, bot sẽ thử đọc public Goog
 /users
 ```
 
-## Chạy bằng systemd
+## Run with systemd
 
-Tạo file `/etc/systemd/system/zk-rom-bot.service`:
+Create `/etc/systemd/system/zk-rom-bot.service`:
 
 ```ini
 [Unit]
@@ -92,7 +93,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-Sau đó chạy:
+Then run:
 
 ```bash
 sudo systemctl daemon-reload
@@ -100,8 +101,8 @@ sudo systemctl enable --now zk-rom-bot
 sudo journalctl -u zk-rom-bot -f
 ```
 
-## Lưu ý bảo mật
+## Security notes
 
-- Không commit file `.env` và `rom_bot.sqlite3` lên GitHub.
-- Chỉ thêm admin thật sự cần quyền cấp/xóa user.
-- Nếu user đổi máy hoặc bán máy, dùng `/remove <id> <device>` để gỡ quyền.
+- Do not commit `.env` or `rom_bot.sqlite3` to GitHub.
+- Only add trusted Telegram IDs to `ADMIN_IDS`.
+- If a user changes or sells a device, run `/remove <telegram_id> <device>`.
