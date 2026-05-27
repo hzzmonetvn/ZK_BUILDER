@@ -131,7 +131,7 @@ class Bot:
     def require_admin(self, chat_id, uid):
         if self.is_admin(uid):
             return True
-        self.send(chat_id, '❌ Lệnh này chỉ dành cho admin.')
+        self.send(chat_id, 'Access denied. This command is for admins only.')
         return False
 
     def authed(self, uid, device):
@@ -178,42 +178,42 @@ class Bot:
         return list(out.values())
 
     def cmd_help(self, chat, uid):
-        msg = ['🤖 <b>ZK ROM Bot</b>', '', 'User:', '• /id - xem Telegram ID', '• /devices - xem máy đã được cấp quyền', '• /get &lt;device&gt; - lấy ROM, ví dụ <code>/get nezha</code>']
+        msg = ['<b>ZK ROM Bot</b>', '', 'User commands:', '- /id - show your Telegram ID', '- /devices - show devices you are authorized for', '- /get &lt;device&gt; - get ROM links, for example <code>/get nezha</code>']
         if self.is_admin(uid):
-            msg += ['', 'Admin:', '• /add &lt;id tele&gt; &lt;device&gt; [device2 ...]', '• /remove &lt;id tele&gt; &lt;device&gt; [device2 ...]', '• /sync - sync Drive ngay', '• /users - xem danh sách quyền']
+            msg += ['', 'Admin commands:', '- /add &lt;telegram_id&gt; &lt;device&gt; [device2 ...]', '- /remove &lt;telegram_id&gt; &lt;device&gt; [device2 ...]', '- /sync - sync Google Drive now', '- /users - list authorized users']
         self.send(chat, '\n'.join(msg))
 
     def cmd_add(self, chat, uid, args):
         if not self.require_admin(chat, uid): return
         if len(args) < 2 or not args[0].lstrip('-').isdigit():
-            return self.send(chat, 'Dùng: <code>/add &lt;id tele&gt; &lt;device&gt; [device2 ...]</code>')
+            return self.send(chat, 'Usage: <code>/add &lt;telegram_id&gt; &lt;device&gt; [device2 ...]</code>')
         tid, devs = int(args[0]), [norm_device(x) for x in args[1:]]
         with self.db() as con:
             for d in devs:
                 con.execute('insert or ignore into auth_users values(?,?,?,?)', (tid, d, uid, now()))
-        self.send(chat, f'✅ Đã cấp quyền cho <code>{tid}</code>: <code>{html.escape(", ".join(devs))}</code>')
+        self.send(chat, f'Access granted for <code>{tid}</code>: <code>{html.escape(", ".join(devs))}</code>')
 
     def cmd_remove(self, chat, uid, args):
         if not self.require_admin(chat, uid): return
         if len(args) < 2 or not args[0].lstrip('-').isdigit():
-            return self.send(chat, 'Dùng: <code>/remove &lt;id tele&gt; &lt;device&gt; [device2 ...]</code>')
+            return self.send(chat, 'Usage: <code>/remove &lt;telegram_id&gt; &lt;device&gt; [device2 ...]</code>')
         tid, devs = int(args[0]), [norm_device(x) for x in args[1:]]
         with self.db() as con:
             for d in devs:
                 con.execute('delete from auth_users where telegram_id=? and device=?', (tid, d))
-        self.send(chat, f'✅ Đã gỡ quyền của <code>{tid}</code>: <code>{html.escape(", ".join(devs))}</code>')
+        self.send(chat, f'Access removed for <code>{tid}</code>: <code>{html.escape(", ".join(devs))}</code>')
 
     def cmd_get(self, chat, uid, args):
         if len(args) != 1:
-            return self.send(chat, 'Dùng: <code>/get &lt;device&gt;</code>, ví dụ <code>/get nezha</code>')
+            return self.send(chat, 'Usage: <code>/get &lt;device&gt;</code>, for example <code>/get nezha</code>')
         dev = norm_device(args[0])
         if not self.authed(uid, dev):
-            return self.send(chat, f'❌ Bạn chưa được cấp quyền cho <code>{dev}</code>. Liên hệ {html.escape(self.contact)}')
+            return self.send(chat, f'You are not authorized for <code>{dev}</code>. Please contact {html.escape(self.contact)}')
         with self.db() as con:
             rows = con.execute('select * from rom_files where device=? order by case when build_date is null then 1 else 0 end, build_date desc, modified_time desc, name desc limit ?', (dev, self.max_files)).fetchall()
         if not rows:
-            return self.send(chat, f'⚠️ Chưa tìm thấy ROM cho <code>{dev}</code>. Admin có thể dùng /sync để cập nhật lại.')
-        lines = [f'📱 <b>{html.escape(dev.upper())}</b> - ROM mới nhất:', '']
+            return self.send(chat, f'No ROM files found for <code>{dev}</code> yet. An admin can run /sync to refresh the list.')
+        lines = [f'<b>{html.escape(dev.upper())}</b> - latest ROM files:', '']
         for i, r in enumerate(rows, 1):
             url = r['download_link'] or r['view_link']
             lines.append(f'{i}. <a href="{html.escape(url)}">{html.escape(r["name"])}</a>')
@@ -224,25 +224,25 @@ class Bot:
         with self.db() as con:
             rows = con.execute('select device from auth_users where telegram_id=? order by device', (uid,)).fetchall()
         if not rows:
-            return self.send(chat, f'Bạn chưa được cấp quyền. Liên hệ {html.escape(self.contact)}')
-        self.send(chat, 'Thiết bị đã được cấp quyền: ' + ', '.join(f'<code>{r["device"]}</code>' for r in rows))
+            return self.send(chat, f'You are not authorized yet. Please contact {html.escape(self.contact)}')
+        self.send(chat, 'Authorized devices: ' + ', '.join(f'<code>{r["device"]}</code>' for r in rows))
 
     def cmd_sync(self, chat, uid):
         if not self.require_admin(chat, uid): return
         try:
             n = self.sync_once()
-            self.send(chat, f'✅ Sync xong. Đã lưu/cập nhật <code>{n}</code> file ROM.')
+            self.send(chat, f'Sync complete. Saved or updated <code>{n}</code> ROM files.')
         except Exception as e:
             logging.exception('sync failed')
-            self.send(chat, f'❌ Sync lỗi: <code>{html.escape(str(e))}</code>')
+            self.send(chat, f'Sync failed: <code>{html.escape(str(e))}</code>')
 
     def cmd_users(self, chat, uid):
         if not self.require_admin(chat, uid): return
         with self.db() as con:
             rows = con.execute('select telegram_id, group_concat(device, ", ") devices from auth_users group by telegram_id order by telegram_id').fetchall()
         if not rows:
-            return self.send(chat, 'Chưa có user nào được cấp quyền.')
-        self.send(chat, '\n'.join(['👥 <b>Danh sách quyền</b>', ''] + [f'• <code>{r["telegram_id"]}</code>: <code>{html.escape(r["devices"])}</code>' for r in rows]))
+            return self.send(chat, 'No authorized users yet.')
+        self.send(chat, '\n'.join(['<b>Authorized users</b>', ''] + [f'- <code>{r["telegram_id"]}</code>: <code>{html.escape(r["devices"])}</code>' for r in rows]))
 
     def handle(self, upd):
         m = upd.get('message') or {}
@@ -255,14 +255,14 @@ class Bot:
         cmd = parts[0].split('@', 1)[0].lower()
         args = parts[1:]
         if cmd in ('/start', '/help'): self.cmd_help(chat, uid)
-        elif cmd == '/id': self.send(chat, f'Telegram ID của bạn: <code>{uid}</code>')
+        elif cmd == '/id': self.send(chat, f'Your Telegram ID: <code>{uid}</code>')
         elif cmd == '/add': self.cmd_add(chat, uid, args)
         elif cmd == '/remove': self.cmd_remove(chat, uid, args)
         elif cmd == '/get': self.cmd_get(chat, uid, args)
         elif cmd == '/devices': self.cmd_devices(chat, uid)
         elif cmd == '/sync': self.cmd_sync(chat, uid)
         elif cmd == '/users': self.cmd_users(chat, uid)
-        else: self.send(chat, 'Lệnh không hợp lệ. Gõ /help để xem hướng dẫn.')
+        else: self.send(chat, 'Unknown command. Send /help to see available commands.')
 
     def sync_loop(self):
         while not self.stop.wait(self.sync_interval):
