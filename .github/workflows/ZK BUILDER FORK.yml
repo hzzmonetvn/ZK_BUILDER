@@ -32,11 +32,11 @@ on:
       UPLOAD_GOFILE:
         description: "Upload to Gofile"
         type: boolean
-        default: true
+        default: false
       UPLOAD_PIXELDRAIN:
         description: "Upload to Pixeldrain"
         type: boolean
-        default: false
+        default: true
 
 jobs:
   build:
