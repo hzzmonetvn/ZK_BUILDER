@@ -357,13 +357,7 @@ jobs:
           [ -n "${PIXEL_LINK:-}" ] && append_btn "📥 Pixeldrain" "$PIXEL_LINK"
           [ -n "${PIXEL_CDN:-}" ] && append_btn "⚡ Pixeldrain CDN" "$PIXEL_CDN"
 
-          TG_TEXT=$(printf '✅ <b>Build Thành Công!</b>
-🧩 <b>Mode:</b> <code>%s</code>
-🌿 <b>Branch:</b> <code>%s</code>
-🔖 <b>Commit:</b> <code>%s</code>
-📱 <b>Device:</b> <code>%s</code>
-📦 <b>File:</b> <code>%s</code>
-💾 <b>Size:</b> %s' \
+          TG_TEXT=$(printf '✅ <b>Build Thành Công!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>File:</b> <code>%s</code>\n💾 <b>Size:</b> %s' \
             "$BUILD_MODE" "$BRANCH" "${SOURCE_COMMIT:-latest}" "${DEVICE:-unknown}" "$ROM_FILENAME" "$ROM_SIZE")
 
           PAYLOAD=$(jq -n \
@@ -383,13 +377,7 @@ jobs:
           LOG_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           TG_CHAT="${TELEGRAM_CHAT_ID:-${{ secrets.TELEGRAM_TO }}}"
 
-          TG_TEXT=$(printf '❌ <b>Build Thất Bại!</b>
-🧩 <b>Mode:</b> <code>%s</code>
-🌿 <b>Branch:</b> <code>%s</code>
-🔖 <b>Commit:</b> <code>%s</code>
-📱 <b>Device:</b> <code>%s</code>
-📦 <b>ROM:</b> <code>%s</code>
-🔗 <a href="%s">Xem log chi tiết</a>' \
+          TG_TEXT=$(printf '❌ <b>Build Thất Bại!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>ROM:</b> <code>%s</code>\n🔗 <a href="%s">Xem log chi tiết</a>' \
             "${BUILD_MODE:-unknown}" "${BRANCH:-unknown}" "${SOURCE_COMMIT:-${BUILD_COMMIT:-latest}}" "${DEVICE:-unknown}" "${ZK_NAME:-unknown}" "$LOG_URL")
 
           PAYLOAD=$(jq -n \
