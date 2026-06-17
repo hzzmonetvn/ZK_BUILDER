@@ -10,9 +10,9 @@ on:
         description: "ROM URL (Stock OTA or Xiaomi.eu zip direct link)"
         required: true
       BRANCH:
-        description: "Branch ZK_AUTO_BUILD (hzz, stock, eu, lite...)"
+        description: "Branch ZK_AUTO_BUILD (auto = main for EU, stock for stock)"
         required: true
-        default: "hzz"
+        default: "auto"
       COMMIT_HASH:
         description: "Optional ZK_AUTO_BUILD commit hash (leave empty for latest)"
         required: false
@@ -80,6 +80,10 @@ jobs:
             g++ gcc git jq lz4 openjdk-17-jdk openjdk-17-jdk-headless openssh-client \
             p7zip-full python-is-python3 python3 python3-pip python3-protobuf rsync xz-utils zip zipalign zlib1g-dev \
             > /dev/null 2>&1
+          python3 - <<'PY'
+          from google.protobuf import descriptor as _descriptor
+          print("protobuf import OK")
+          PY
 
       - name: Detect ROM mode and name
         run: |
@@ -167,7 +171,7 @@ jobs:
           DEVICE_FINAL="${DEVICE:-XIAOMI}"
           DEVICE_LC="$(printf '%s' "$DEVICE_FINAL" | tr '[:upper:]' '[:lower:]')"
           case "$DEVICE_LC" in
-            myron|nezha|pudding|popsicle|pandora)
+            myron|nezha|pudding|popsicle|pandora|byron)
               TELEGRAM_CHAT_ID="-1003986558914"
               ;;
             *)
@@ -197,32 +201,11 @@ jobs:
             timeout 9000 aria2c -s16 -x16 -j"$(nproc)" -c -U "Mozilla/5.0" \
               -o "${ZK_NAME}.zip" "$ROM_URL" \
               || { echo "::error::OTA download thất bại"; exit 1; }
-
-            device_lc="$(printf '%s' "$DEVICE" | tr '[:upper:]' '[:lower:]')"
-            super_config_dir="$GITHUB_WORKSPACE/SuperConfig/$device_lc"
-            super_config_file="$super_config_dir/super"
-            parts_info_file="$super_config_dir/parts_info"
-
-            super_size=""
-            if [ -f "$super_config_file" ]; then
-              super_size=$(jq -r '.block_devices[]? | select(.name == "super") | .size // empty' "$super_config_file" | head -n1)
-              echo "✅ Super size từ SuperConfig/$device_lc/super: ${super_size:-empty}"
-            fi
-
-            if [ -z "$super_size" ] && [ -f "$parts_info_file" ]; then
-              super_size=$(jq -r '.super_info.block_devices[]? | select(.name == "super") | .size // empty' "$parts_info_file" | head -n1)
-              echo "✅ Super size từ SuperConfig/$device_lc/parts_info: ${super_size:-empty}"
-            fi
-
-            if ! [[ "$super_size" =~ ^[0-9]+$ ]] || [ "$super_size" -le 0 ]; then
-              echo "::error::Không tìm được super size hợp lệ cho device '$DEVICE' trong SuperConfig/$device_lc. Cần file SuperConfig/$device_lc/super có .block_devices[].size."
-              echo "📁 Một số config hiện có:"
-              find "$GITHUB_WORKSPACE/SuperConfig" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | head -50
-              exit 1
-            fi
-
-            echo "SUPER_SIZE=$super_size" >> "$GITHUB_ENV"
           fi
+
+          [ -s "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" ] \
+            || { echo "::error::Downloaded ROM is missing or empty"; exit 1; }
+          echo "✅ Download complete: $(du -h "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" | cut -f1)"
 
       - name: Clone ZK AUTO BUILD sources
         run: |
@@ -244,21 +227,35 @@ jobs:
             git fetch --no-tags --filter=blob:none origin "$BUILD_COMMIT" || true
             git checkout --detach "$BUILD_COMMIT" \
               || { echo "::error::Không checkout được commit '$BUILD_COMMIT'. Hãy kiểm tra hash commit có tồn tại trong ZK_AUTO_BUILD."; exit 1; }
+            ZK_BRANCH="commit-$BUILD_COMMIT"
           else
-            echo "🌿 Cloning latest ZK_AUTO_BUILD branch: $BRANCH"
-            git clone --branch "$BRANCH" --single-branch --depth=1 --no-tags --filter=blob:none \
+            REQUESTED_BRANCH="${BRANCH:-auto}"
+            if [ "$REQUESTED_BRANCH" = "auto" ] || [ "$REQUESTED_BRANCH" = "hzz" ]; then
+              if [ "$BUILD_MODE" = "eu" ]; then
+                ZK_BRANCH="main"
+              else
+                ZK_BRANCH="stock"
+              fi
+            else
+              ZK_BRANCH="$REQUESTED_BRANCH"
+            fi
+
+            echo "🌿 Cloning ZK_AUTO_BUILD branch: $ZK_BRANCH"
+            git clone --branch "$ZK_BRANCH" --single-branch --depth=1 --no-tags --filter=blob:none \
               git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
             cd "$ZK_HOME"
           fi
 
           SOURCE_COMMIT="$(git rev-parse --short=12 HEAD)"
           echo "SOURCE_COMMIT=$SOURCE_COMMIT" >> "$GITHUB_ENV"
+          echo "ZK_BRANCH=$ZK_BRANCH" >> "$GITHUB_ENV"
+          echo "✅ ZK_AUTO_BUILD source branch: $ZK_BRANCH"
           echo "✅ ZK_AUTO_BUILD source commit: $SOURCE_COMMIT"
 
           mkdir -p "$ZK_HOME/ROM"
           mv -f "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" "$ZK_HOME/ROM/${ZK_NAME}.zip"
           sudo chmod -R +x "$ZK_HOME"
-          echo "✅ Đã chuẩn bị sources branch $BRANCH"
+          echo "✅ Đã chuẩn bị sources branch $ZK_BRANCH"
 
       - name: Build ProjectZK ROM
         id: build
@@ -267,12 +264,13 @@ jobs:
           cd "$ZK_HOME"
           echo "🔨 Bắt đầu build: $ZK_NAME"
           echo "🧩 BUILD_MODE=$BUILD_MODE"
+          echo "🌿 ZK_BRANCH=${ZK_BRANCH:-unknown}"
           echo "🔖 SOURCE_COMMIT=${SOURCE_COMMIT:-latest}"
 
           if [ "$BUILD_MODE" = "eu" ]; then
-            sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" "${{ github.event.inputs.EXT4 }}"
+            sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_NAME" "${{ github.event.inputs.EXT4 }}"
           else
-            sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_HOME" "$ZK_NAME" "$SUPER_SIZE"
+            sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_NAME"
           fi
 
           source "$GITHUB_ENV" 2>/dev/null || true
@@ -358,7 +356,7 @@ jobs:
           [ -n "${PIXEL_CDN:-}" ] && append_btn "⚡ Pixeldrain CDN" "$PIXEL_CDN"
 
           TG_TEXT=$(printf '✅ <b>Build Thành Công!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>File:</b> <code>%s</code>\n💾 <b>Size:</b> %s' \
-            "$BUILD_MODE" "$BRANCH" "${SOURCE_COMMIT:-latest}" "${DEVICE:-unknown}" "$ROM_FILENAME" "$ROM_SIZE")
+            "$BUILD_MODE" "${ZK_BRANCH:-$BRANCH}" "${SOURCE_COMMIT:-latest}" "${DEVICE:-unknown}" "$ROM_FILENAME" "$ROM_SIZE")
 
           PAYLOAD=$(jq -n \
             --arg chat "$TG_CHAT" \
@@ -378,7 +376,7 @@ jobs:
           TG_CHAT="${TELEGRAM_CHAT_ID:-${{ secrets.TELEGRAM_TO }}}"
 
           TG_TEXT=$(printf '❌ <b>Build Thất Bại!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>ROM:</b> <code>%s</code>\n🔗 <a href="%s">Xem log chi tiết</a>' \
-            "${BUILD_MODE:-unknown}" "${BRANCH:-unknown}" "${SOURCE_COMMIT:-${BUILD_COMMIT:-latest}}" "${DEVICE:-unknown}" "${ZK_NAME:-unknown}" "$LOG_URL")
+            "${BUILD_MODE:-unknown}" "${ZK_BRANCH:-${BRANCH:-unknown}}" "${SOURCE_COMMIT:-${BUILD_COMMIT:-latest}}" "${DEVICE:-unknown}" "${ZK_NAME:-unknown}" "$LOG_URL")
 
           PAYLOAD=$(jq -n \
             --arg chat "$TG_CHAT" \
