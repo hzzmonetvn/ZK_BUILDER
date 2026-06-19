@@ -231,7 +231,7 @@ jobs:
             ZK_BRANCH="commit-$BUILD_COMMIT"
           else
             REQUESTED_BRANCH="${BRANCH:-auto}"
-            if [ "$REQUESTED_BRANCH" = "auto" ] || [ "$REQUESTED_BRANCH" = "hzz" ]; then
+            if [ "$REQUESTED_BRANCH" = "auto" ]; then
               if [ "$BUILD_MODE" = "eu" ]; then
                 ZK_BRANCH="main"
               else
