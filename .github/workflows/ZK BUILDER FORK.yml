@@ -39,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 unzip python3 liblz4-tool zip jq
+          sudo apt-get install -y aria2 unzip python3 liblz4-tool zip jq android-sdk-libsparse-utils
 
       - name: Set up tools permissions
         run: |
@@ -98,7 +98,7 @@ jobs:
                 fi
                 
                 echo "Unpacking ROM 2 $part.img..."
-                if [ -f "rom1_temp/images/${part}.img" ]; then
+                if [ -f "rom2_temp/images/${part}.img" ]; then
                   ./zk_auto_build/tools/extract.erofs -x -i "rom2_temp/images/${part}.img" -o "rom2_temp/extracted" > /dev/null 2>&1 || echo "Failed to unpack ROM 2 ${part}.img"
                   rm -f "rom2_temp/images/${part}.img"
                 fi
