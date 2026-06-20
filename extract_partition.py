@@ -12,65 +12,6 @@ def find_file_in_zip(namelist, target_suffix):
             return name
     return None
 
-def find_lpunpack(tools_dir):
-    """Finds lpunpack binary. Checks tools_dir first, then clones repo if needed."""
-    # Check in tools_dir
-    lpunpack_path = os.path.join(tools_dir, "lpunpack")
-    if os.path.exists(lpunpack_path):
-        os.chmod(lpunpack_path, 0o755)
-        return lpunpack_path
-
-    # Check if available in system PATH
-    result = subprocess.run(["which", "lpunpack"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if result.returncode == 0:
-        path = result.stdout.decode().strip()
-        if path:
-            return path
-
-    # Clone Rprop/aosp15_partition_tools and use the linux binary
-    clone_dir = "aosp15_partition_tools"
-    if not os.path.exists(clone_dir):
-        print("Cloning Rprop/aosp15_partition_tools for lpunpack binary...")
-        res = subprocess.run(
-            ["git", "clone", "--depth=1", "https://github.com/nicholaschum/super-image-dumper.git", clone_dir],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        if res.returncode != 0:
-            # Try alternative repo
-            res = subprocess.run(
-                ["git", "clone", "--depth=1", "https://github.com/Rprop/aosp15_partition_tools.git", clone_dir],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-
-    # Look for lpunpack in cloned repo
-    for candidate in [
-        os.path.join(clone_dir, "linux", "lpunpack"),
-        os.path.join(clone_dir, "lpunpack"),
-        os.path.join(clone_dir, "bin", "lpunpack"),
-    ]:
-        if os.path.exists(candidate):
-            os.chmod(candidate, 0o755)
-            # Copy to tools_dir for future use
-            dest = os.path.join(tools_dir, "lpunpack")
-            shutil.copy2(candidate, dest)
-            os.chmod(dest, 0o755)
-            # Clean up cloned repo
-            shutil.rmtree(clone_dir, ignore_errors=True)
-            return dest
-
-    # Last resort: try to install via apt
-    print("Attempting to install lpunpack via apt...")
-    subprocess.run(["sudo", "apt-get", "install", "-y", "android-sdk-libsparse-utils"],
-                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    result = subprocess.run(["which", "lpunpack"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if result.returncode == 0:
-        path = result.stdout.decode().strip()
-        if path:
-            return path
-
-    print("Error: Could not find or install lpunpack.")
-    sys.exit(1)
-
 def extract_partition(zip_path, partition_name, output_img_path, tools_dir):
     if not os.path.exists(zip_path):
         print(f"Error: Zip file not found at {zip_path}")
@@ -144,58 +85,49 @@ def extract_partition(zip_path, partition_name, output_img_path, tools_dir):
             print(f"Extracting {super_path} to {temp_super}...")
             with open(temp_super, "wb") as f_out:
                 f_out.write(z.read(super_path))
-                
-            # Check if super.img is sparse, convert to raw if needed
-            with open(temp_super, "rb") as f:
-                magic = f.read(4)
-            if magic == b'\x3a\xff\x26\xed':
-                print("Detected sparse super.img, converting to raw...")
-                temp_raw = "temp_super_raw.img"
-                res = subprocess.run(["simg2img", temp_super, temp_raw],
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                if res.returncode == 0 and os.path.exists(temp_raw):
-                    os.remove(temp_super)
-                    os.rename(temp_raw, temp_super)
-                    print("Converted sparse to raw successfully.")
-                else:
-                    print("Warning: simg2img conversion failed, trying with original file...")
-                    if os.path.exists(temp_raw):
-                        os.remove(temp_raw)
 
-            lpunpack_tool = find_lpunpack(tools_dir)
-            
-            print(f"Unpacking super.img for partition {partition_name}...")
+            # Use lpunpack.py from tools/py/
+            lpunpack_py = os.path.join(tools_dir, "py", "lpunpack.py")
+            if not os.path.exists(lpunpack_py):
+                print(f"Error: lpunpack.py not found at {lpunpack_py}")
+                if os.path.exists(temp_super):
+                    os.remove(temp_super)
+                sys.exit(1)
+
             temp_out_dir = "temp_super_out"
             os.makedirs(temp_out_dir, exist_ok=True)
-            
-            # Try with --slot=0 first (common for A/B devices)
-            cmd = [lpunpack_tool, "--slot=0", "-p", f"{partition_name}_a", temp_super, temp_out_dir]
+
+            # Try extracting with partition name directly
+            cmd = ["python3", lpunpack_py, "-p", partition_name, temp_super, temp_out_dir]
             print(f"Running command: {' '.join(cmd)}")
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            
-            dumped_img = os.path.join(temp_out_dir, f"{partition_name}_a.img")
+            print(res.stdout.decode('utf-8', errors='ignore'))
+
+            dumped_img = os.path.join(temp_out_dir, f"{partition_name}.img")
+
+            # If not found, try with _a suffix (A/B devices)
             if not os.path.exists(dumped_img) or os.path.getsize(dumped_img) == 0:
-                # Try without slot suffix
                 shutil.rmtree(temp_out_dir, ignore_errors=True)
                 os.makedirs(temp_out_dir, exist_ok=True)
-                cmd = [lpunpack_tool, "-p", partition_name, temp_super, temp_out_dir]
-                print(f"Retrying command: {' '.join(cmd)}")
+                partition_ab = f"{partition_name}_a"
+                cmd = ["python3", lpunpack_py, "-p", partition_ab, temp_super, temp_out_dir]
+                print(f"Retrying with A/B suffix: {' '.join(cmd)}")
                 res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                dumped_img = os.path.join(temp_out_dir, f"{partition_name}.img")
-            
+                print(res.stdout.decode('utf-8', errors='ignore'))
+                dumped_img = os.path.join(temp_out_dir, f"{partition_ab}.img")
+
             # Clean up super.img immediately
             if os.path.exists(temp_super):
                 os.remove(temp_super)
-                
+
             if os.path.exists(dumped_img) and os.path.getsize(dumped_img) > 0:
                 os.makedirs(os.path.dirname(output_img_path), exist_ok=True)
                 os.rename(dumped_img, output_img_path)
                 shutil.rmtree(temp_out_dir, ignore_errors=True)
-                print("Extraction from super.img successful.")
+                print(f"Extraction from super.img successful.")
                 return
             else:
                 print(f"Error: Failed to unpack {partition_name} from super.img. Output:")
-                print(res.stdout.decode('utf-8', errors='ignore'))
                 print(res.stderr.decode('utf-8', errors='ignore'))
                 shutil.rmtree(temp_out_dir, ignore_errors=True)
                 sys.exit(1)
