@@ -22,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Builder (dev branch)
+      - name: Checkout Builder (compare branch)
         uses: actions/checkout@v4
         with:
-          ref: dev
+          ref: compare
           path: builder
 
       - name: Checkout ZK_AUTO_BUILD (hzz branch)
