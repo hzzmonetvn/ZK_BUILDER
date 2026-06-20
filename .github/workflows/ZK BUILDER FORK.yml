@@ -145,11 +145,19 @@ jobs:
             fi
           fi
 
+          REQUESTED_BRANCH_FOR_NAME="${BRANCH:-auto}"
+          if [ "$REQUESTED_BRANCH_FOR_NAME" = "hzz" ] || { [ "$REQUESTED_BRANCH_FOR_NAME" != "auto" ] && [ "$REQUESTED_BRANCH_FOR_NAME" != "main" ] && [ "$REQUESTED_BRANCH_FOR_NAME" != "stock" ]; }; then
+            ZK_STOCK_PREFIX="ZKOS-Fork"
+          else
+            ZK_STOCK_PREFIX="ZKOS"
+          fi
+
           echo "ROM_URL=$ROM_URL" >> "$GITHUB_ENV"
           echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
           echo "BUILD_COMMIT=$BUILD_COMMIT" >> "$GITHUB_ENV"
           echo "BUILD_MODE=$MODE" >> "$GITHUB_ENV"
           echo "ROM_NAME=$ROM_NAME" >> "$GITHUB_ENV"
+          echo "ZK_STOCK_PREFIX=$ZK_STOCK_PREFIX" >> "$GITHUB_ENV"
 
           echo "🧩 BUILD_MODE=$MODE"
           echo "🌿 BRANCH=$BRANCH"
@@ -159,6 +167,7 @@ jobs:
             echo "🔖 COMMIT_HASH=latest"
           fi
           echo "📝 ROM_NAME=$ROM_NAME"
+          echo "🏷️ ZK_STOCK_PREFIX=$ZK_STOCK_PREFIX"
 
           if [ "$MODE" = "eu" ]; then
             if [[ "$ROM_NAME" == *_OS* ]]; then
@@ -193,12 +202,12 @@ jobs:
                 DEVICE="${BASH_REMATCH[1]^^}"
                 OS_VER="${BASH_REMATCH[2]}"
                 REGION="${BASH_REMATCH[3]}"
-                ZK_NAME="ZKOS-Fork_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+                ZK_NAME="${ZK_STOCK_PREFIX}_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
               elif [[ "$ROM_NAME" =~ ^([a-z0-9]+)_[a-z_]+-ota_full-(OS[0-9.]+)\.([A-Z0-9]+)-user-([0-9.]+)-.*\.zip$ ]]; then
                 DEVICE="${BASH_REMATCH[1]^^}"
                 OS_VER="${BASH_REMATCH[2]}"
                 REGION="${BASH_REMATCH[3]}"
-                ZK_NAME="ZKOS-BETA_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+                ZK_NAME="${ZK_STOCK_PREFIX}_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
               else
                 echo "::error::Không parse được tên ROM stock: $ROM_NAME"
                 exit 1
@@ -418,8 +427,12 @@ jobs:
           [ -n "${PIXEL_LINK:-}" ] && append_btn "📥 Pixeldrain" "$PIXEL_LINK"
           [ -n "${PIXEL_CDN:-}" ] && append_btn "⚡ Pixeldrain CDN" "$PIXEL_CDN"
 
-          TG_TEXT=$(printf '✅ <b>Build Thành Công!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>File:</b> <code>%s</code>\n💾 <b>Size:</b> %s' \
-            "$BUILD_MODE" "${ZK_BRANCH:-$BRANCH}" "${SOURCE_COMMIT:-latest}" "${DEVICE:-unknown}" "$ROM_FILENAME" "$ROM_SIZE")
+          BUILD_OPTIONS_TEXT=$(printf '🧰 <b>Build options:</b>\n• Add KaoriosToolbox: <code>%s</code>\n• Add JamesDSP Sound Modifier: <code>%s</code>\n• Modify Device Features (HyperUnlocked): <code>%s</code>\n• Apply Wifi bonding: <code>%s</code>\n• Modify thermal config: <code>%s</code>\n• Add init.rc clear package cache: <code>%s</code>\n• Add ZK mods: <code>%s</code>\n• Remove unnecessary AI features: <code>%s</code>\n• Patch JARs: <code>%s</code>\n• Patch APKs: <code>%s</code>' \
+            "${{ github.event.inputs.OPTION_TOOLBOX }}" "${{ github.event.inputs.OPTION_JAMESDSP }}" "${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" "${{ github.event.inputs.OPTION_WIFI_BONDING }}" "${{ github.event.inputs.OPTION_THERMAL }}" "${{ github.event.inputs.OPTION_INIT_RC }}" "${{ github.event.inputs.OPTION_ZK_MODS }}" "${{ github.event.inputs.OPTION_REMOVE_AI }}" "${{ github.event.inputs.OPTION_PATCH_JARS }}" "${{ github.event.inputs.OPTION_PATCH_APKS }}")
+          UPLOAD_OPTIONS_TEXT=$(printf '☁️ <b>Upload:</b>\n• Gofile: <code>%s</code>\n• Pixeldrain: <code>%s</code>' \
+            "${{ github.event.inputs.UPLOAD_GOFILE }}" "${{ github.event.inputs.UPLOAD_PIXELDRAIN }}")
+          TG_TEXT=$(printf '✅ <b>Build Thành Công!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>File:</b> <code>%s</code>\n💾 <b>Size:</b> %s\n%s\n%s' \
+            "$BUILD_MODE" "${ZK_BRANCH:-$BRANCH}" "${SOURCE_COMMIT:-latest}" "${DEVICE:-unknown}" "$ROM_FILENAME" "$ROM_SIZE" "$BUILD_OPTIONS_TEXT" "$UPLOAD_OPTIONS_TEXT")
 
           PAYLOAD=$(jq -n \
             --arg chat "$TG_CHAT" \
@@ -438,8 +451,12 @@ jobs:
           LOG_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           TG_CHAT="${TELEGRAM_CHAT_ID:-${{ secrets.TELEGRAM_TO }}}"
 
-          TG_TEXT=$(printf '❌ <b>Build Thất Bại!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>ROM:</b> <code>%s</code>\n🔗 <a href="%s">Xem log chi tiết</a>' \
-            "${BUILD_MODE:-unknown}" "${ZK_BRANCH:-${BRANCH:-unknown}}" "${SOURCE_COMMIT:-${BUILD_COMMIT:-latest}}" "${DEVICE:-unknown}" "${ZK_NAME:-unknown}" "$LOG_URL")
+          BUILD_OPTIONS_TEXT=$(printf '🧰 <b>Build options:</b>\n• Add KaoriosToolbox: <code>%s</code>\n• Add JamesDSP Sound Modifier: <code>%s</code>\n• Modify Device Features (HyperUnlocked): <code>%s</code>\n• Apply Wifi bonding: <code>%s</code>\n• Modify thermal config: <code>%s</code>\n• Add init.rc clear package cache: <code>%s</code>\n• Add ZK mods: <code>%s</code>\n• Remove unnecessary AI features: <code>%s</code>\n• Patch JARs: <code>%s</code>\n• Patch APKs: <code>%s</code>' \
+            "${{ github.event.inputs.OPTION_TOOLBOX }}" "${{ github.event.inputs.OPTION_JAMESDSP }}" "${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" "${{ github.event.inputs.OPTION_WIFI_BONDING }}" "${{ github.event.inputs.OPTION_THERMAL }}" "${{ github.event.inputs.OPTION_INIT_RC }}" "${{ github.event.inputs.OPTION_ZK_MODS }}" "${{ github.event.inputs.OPTION_REMOVE_AI }}" "${{ github.event.inputs.OPTION_PATCH_JARS }}" "${{ github.event.inputs.OPTION_PATCH_APKS }}")
+          UPLOAD_OPTIONS_TEXT=$(printf '☁️ <b>Upload:</b>\n• Gofile: <code>%s</code>\n• Pixeldrain: <code>%s</code>' \
+            "${{ github.event.inputs.UPLOAD_GOFILE }}" "${{ github.event.inputs.UPLOAD_PIXELDRAIN }}")
+          TG_TEXT=$(printf '❌ <b>Build Thất Bại!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>ROM:</b> <code>%s</code>\n%s\n%s\n🔗 <a href="%s">Xem log chi tiết</a>' \
+            "${BUILD_MODE:-unknown}" "${ZK_BRANCH:-${BRANCH:-unknown}}" "${SOURCE_COMMIT:-${BUILD_COMMIT:-latest}}" "${DEVICE:-unknown}" "${ZK_NAME:-unknown}" "$BUILD_OPTIONS_TEXT" "$UPLOAD_OPTIONS_TEXT" "$LOG_URL")
 
           PAYLOAD=$(jq -n \
             --arg chat "$TG_CHAT" \
