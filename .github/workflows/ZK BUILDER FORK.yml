@@ -39,7 +39,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 unzip python3 liblz4-tool
+          sudo apt-get install -y aria2 unzip python3 liblz4-tool zip jq
 
       - name: Set up tools permissions
         run: |
@@ -70,6 +70,7 @@ jobs:
 
       - name: Compare Partitions Sequentially
         run: |
+          mkdir -p rom_diff_out
           IFS=',' read -r -a part_array <<< "${{ inputs.partitions }}"
           for part in "${part_array[@]}"; do
             part=$(echo "$part" | xargs) # trim whitespace
@@ -97,7 +98,7 @@ jobs:
                 fi
                 
                 echo "Unpacking ROM 2 $part.img..."
-                if [ -f "rom2_temp/images/${part}.img" ]; then
+                if [ -f "rom1_temp/images/${part}.img" ]; then
                   ./zk_auto_build/tools/extract.erofs -x -i "rom2_temp/images/${part}.img" -o "rom2_temp/extracted" > /dev/null 2>&1 || echo "Failed to unpack ROM 2 ${part}.img"
                   rm -f "rom2_temp/images/${part}.img"
                 fi
@@ -108,7 +109,8 @@ jobs:
                     --dir1 "rom1_temp/extracted/${part}" \
                     --dir2 "rom2_temp/extracted/${part}" \
                     --partition "$part" \
-                    --output compare_report.md
+                    --output compare_report.md \
+                    --diff-out rom_diff_out
                 else
                   echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report.md
                   echo "❌ Không thể giải nén cấu trúc thư mục của một trong hai ROM." >> compare_report.md
@@ -132,16 +134,89 @@ jobs:
             rm -rf rom1_temp/extracted rom2_temp/extracted
           done
 
+      - name: Package diff files
+        run: |
+          if [ -d "rom_diff_out" ] && [ "$(ls -A rom_diff_out)" ]; then
+            echo "📦 Packaging different files..."
+            (cd rom_diff_out && zip -r ../rom_diff.zip .)
+            echo "✅ Created rom_diff.zip"
+          else
+            echo "ℹ️ No different files found to package."
+          fi
+
+      - name: Upload Diff Zip to Gofile / Pixeldrain
+        run: |
+          if [ -f "rom_diff.zip" ]; then
+            echo "📤 Uploading diff package to storage services..."
+            
+            GOFILE_LINK=""
+            PIXEL_LINK=""
+            
+            # Upload to Pixeldrain
+            echo "📤 Uploading to Pixeldrain..."
+            if [ -n "${{ secrets.PIXELDRAIN_API_KEY }}" ]; then
+              PD_RES=$(curl -sf -u ":${{ secrets.PIXELDRAIN_API_KEY }}" -F "file=@rom_diff.zip" "https://pixeldrain.com/api/file")
+            else
+              PD_RES=$(curl -sf -F "file=@rom_diff.zip" "https://pixeldrain.com/api/file")
+            fi
+            PD_ID=$(echo "$PD_RES" | jq -r '.id // empty')
+            if [ -n "$PD_ID" ]; then
+              PIXEL_LINK="https://pixeldrain.com/u/${PD_ID}"
+              echo "✅ Pixeldrain: $PIXEL_LINK"
+            else
+              echo "⚠️ Pixeldrain upload failed: $PD_RES"
+            fi
+            
+            # Upload to Gofile
+            echo "📤 Uploading to Gofile..."
+            SERVER=$(curl -sf "https://api.gofile.io/servers" | jq -r '.data.servers[0].name // empty')
+            if [ -n "$SERVER" ] && [ "$SERVER" != "null" ]; then
+              if [ -n "${{ secrets.GOFILE_API_KEY }}" ]; then
+                GF_RES=$(curl -sf -H "Authorization: Bearer ${{ secrets.GOFILE_API_KEY }}" -F "file=@rom_diff.zip" "https://${SERVER}.gofile.io/contents/uploadfile")
+              else
+                GF_RES=$(curl -sf -F "file=@rom_diff.zip" "https://${SERVER}.gofile.io/contents/uploadfile")
+              fi
+              GF_LINK=$(echo "$GF_RES" | jq -r '.data.downloadPage // empty')
+              if [ -n "$GF_LINK" ]; then
+                GOFILE_LINK="$GF_LINK"
+                echo "✅ Gofile: $GOFILE_LINK"
+              else
+                echo "⚠️ Gofile upload failed: $GF_RES"
+              fi
+            fi
+            
+            # Append links to report markdown
+            echo "### 📦 Tải xuống các file khác biệt (ROM Diff Package)" > temp_links.md
+            [ -n "$PIXEL_LINK" ] && echo "- **Pixeldrain**: [Tải xuống]($PIXEL_LINK)" >> temp_links.md
+            [ -n "$GOFILE_LINK" ] && echo "- **Gofile**: [Tải xuống]($GOFILE_LINK)" >> temp_links.md
+            echo "" >> temp_links.md
+            echo "---" >> temp_links.md
+            echo "" >> temp_links.md
+            
+            cat temp_links.md compare_report.md > new_report.md
+            mv -f new_report.md compare_report.md
+            rm -f temp_links.md
+          else
+            echo "ℹ️ No diff file found to upload."
+          fi
+
       - name: Clean up remaining files
         run: |
-          rm -rf rom1_temp rom2_temp
+          rm -rf rom1_temp rom2_temp rom_diff_out
 
       - name: Publish Summary
         run: |
           cat compare_report.md >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload Report
+      - name: Upload Report Artifact
         uses: actions/upload-artifact@v4
         with:
           name: rom_comparison_report
           path: compare_report.md
+
+      - name: Upload Diff Zip Artifact
+        if: hashFiles('rom_diff.zip') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: rom_diff_package
+          path: rom_diff.zip
