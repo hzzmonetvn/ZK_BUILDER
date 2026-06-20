@@ -37,6 +37,46 @@ on:
         description: "Upload to Pixeldrain"
         type: boolean
         default: true
+      OPTION_TOOLBOX:
+        description: "Add KaoriosToolbox"
+        type: boolean
+        default: true
+      OPTION_JAMESDSP:
+        description: "Add JamesDSP Sound Modifier"
+        type: boolean
+        default: true
+      OPTION_DEVICE_FEATURES:
+        description: "Modify Device Features (HyperUnlocked)"
+        type: boolean
+        default: true
+      OPTION_WIFI_BONDING:
+        description: "Apply Wifi bonding"
+        type: boolean
+        default: true
+      OPTION_THERMAL:
+        description: "Modify thermal config"
+        type: boolean
+        default: true
+      OPTION_INIT_RC:
+        description: "Add init.rc clear package cache"
+        type: boolean
+        default: true
+      OPTION_ZK_MODS:
+        description: "Add ZK mods"
+        type: boolean
+        default: true
+      OPTION_REMOVE_AI:
+        description: "Remove unnecessary AI features"
+        type: boolean
+        default: true
+      OPTION_PATCH_JARS:
+        description: "Patch JARs"
+        type: boolean
+        default: true
+      OPTION_PATCH_APKS:
+        description: "Patch APKs"
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -269,9 +309,31 @@ jobs:
           echo "🔖 SOURCE_COMMIT=${SOURCE_COMMIT:-latest}"
 
           if [ "$BUILD_MODE" = "eu" ]; then
-            sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_NAME" "${{ github.event.inputs.EXT4 }}"
+            sudo \
+              OPTION_TOOLBOX="${{ github.event.inputs.OPTION_TOOLBOX }}" \
+              OPTION_JAMESDSP="${{ github.event.inputs.OPTION_JAMESDSP }}" \
+              OPTION_DEVICE_FEATURES="${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" \
+              OPTION_WIFI_BONDING="${{ github.event.inputs.OPTION_WIFI_BONDING }}" \
+              OPTION_THERMAL="${{ github.event.inputs.OPTION_THERMAL }}" \
+              OPTION_INIT_RC="${{ github.event.inputs.OPTION_INIT_RC }}" \
+              OPTION_ZK_MODS="${{ github.event.inputs.OPTION_ZK_MODS }}" \
+              OPTION_REMOVE_AI="${{ github.event.inputs.OPTION_REMOVE_AI }}" \
+              OPTION_PATCH_JARS="${{ github.event.inputs.OPTION_PATCH_JARS }}" \
+              OPTION_PATCH_APKS="${{ github.event.inputs.OPTION_PATCH_APKS }}" \
+              bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_NAME" "${{ github.event.inputs.EXT4 }}"
           else
-            sudo bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_NAME"
+            sudo \
+              OPTION_TOOLBOX="${{ github.event.inputs.OPTION_TOOLBOX }}" \
+              OPTION_JAMESDSP="${{ github.event.inputs.OPTION_JAMESDSP }}" \
+              OPTION_DEVICE_FEATURES="${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" \
+              OPTION_WIFI_BONDING="${{ github.event.inputs.OPTION_WIFI_BONDING }}" \
+              OPTION_THERMAL="${{ github.event.inputs.OPTION_THERMAL }}" \
+              OPTION_INIT_RC="${{ github.event.inputs.OPTION_INIT_RC }}" \
+              OPTION_ZK_MODS="${{ github.event.inputs.OPTION_ZK_MODS }}" \
+              OPTION_REMOVE_AI="${{ github.event.inputs.OPTION_REMOVE_AI }}" \
+              OPTION_PATCH_JARS="${{ github.event.inputs.OPTION_PATCH_JARS }}" \
+              OPTION_PATCH_APKS="${{ github.event.inputs.OPTION_PATCH_APKS }}" \
+              bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_NAME"
           fi
 
           source "$GITHUB_ENV" 2>/dev/null || true
