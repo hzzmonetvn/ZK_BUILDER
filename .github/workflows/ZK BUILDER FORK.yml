@@ -34,6 +34,7 @@ jobs:
           repository: zuri1503/ZK_AUTO_BUILD
           ref: hzz
           path: zk_auto_build
+          ssh-key: ${{ secrets.PRIVATE_REPO_KEY }}
 
       - name: Install dependencies
         run: |
