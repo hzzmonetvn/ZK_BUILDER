@@ -107,46 +107,59 @@ def compare_partitions(dir1, dir2, partition_name, output_md_path, diff_out_dir=
             safe_copy(os.path.join(dir2, path), os.path.join(dir_b, path))
 
     # Write report
-    with open(output_md_path, 'a', encoding='utf-8') as f:
-        f.write(f"## Phân vùng / Partition: `{partition_name.upper()}`\n\n")
-        f.write(f"- **Tổng số tệp trong ROM 1**: {len(files1)}\n")
-        f.write(f"- **Tổng số tệp trong ROM 2**: {len(files2)}\n")
-        f.write(f"- **Chỉ có ở ROM 1 (Xóa đi ở ROM 2)**: {len(only_in_1)}\n")
-        f.write(f"- **Chỉ có ở ROM 2 (Thêm mới ở ROM 2)**: {len(only_in_2)}\n")
-        f.write(f"- **Tệp bị thay đổi (Modified)**: {len(modified)}\n\n")
+    def write_report_file(file_path, limit):
+        with open(file_path, 'a', encoding='utf-8') as f:
+            f.write(f"## Phân vùng / Partition: `{partition_name.upper()}`\n\n")
+            f.write(f"- **Tổng số tệp trong ROM 1**: {len(files1)}\n")
+            f.write(f"- **Tổng số tệp trong ROM 2**: {len(files2)}\n")
+            f.write(f"- **Chỉ có ở ROM 1 (Xóa đi ở ROM 2)**: {len(only_in_1)}\n")
+            f.write(f"- **Chỉ có ở ROM 2 (Thêm mới ở ROM 2)**: {len(only_in_2)}\n")
+            f.write(f"- **Tệp bị thay đổi (Modified)**: {len(modified)}\n\n")
 
-        limit = 100
+            limit_str = f" (Tối đa hiển thị {limit})" if limit is not None else ""
 
-        if only_in_1:
-            f.write("<details>\n<summary><b>🔍 Danh sách tệp chỉ có ở ROM 1 (Xóa ở ROM 2) (Tối đa hiển thị 100)</b></summary>\n\n")
-            f.write("| STT | Đường dẫn (Path) |\n|---|---|\n")
-            for idx, path in enumerate(only_in_1[:limit]):
-                f.write(f"| {idx+1} | `{path}` |\n")
-            if len(only_in_1) > limit:
-                f.write(f"| ... | Và {len(only_in_1) - limit} tệp khác... |\n")
-            f.write("\n</details>\n\n")
+            if only_in_1:
+                f.write(f"<details>\n<summary><b>🔍 Danh sách tệp chỉ có ở ROM 1 (Xóa ở ROM 2){limit_str}</b></summary>\n\n")
+                f.write("| STT | Đường dẫn (Path) |\n|---|---|\n")
+                items = only_in_1[:limit] if limit is not None else only_in_1
+                for idx, path in enumerate(items):
+                    f.write(f"| {idx+1} | `{path}` |\n")
+                if limit is not None and len(only_in_1) > limit:
+                    f.write(f"| ... | Và {len(only_in_1) - limit} tệp khác... |\n")
+                f.write("\n</details>\n\n")
 
-        if only_in_2:
-            f.write("<details>\n<summary><b>➕ Danh sách tệp chỉ có ở ROM 2 (Thêm mới ở ROM 2) (Tối đa hiển thị 100)</b></summary>\n\n")
-            f.write("| STT | Đường dẫn (Path) |\n|---|---|\n")
-            for idx, path in enumerate(only_in_2[:limit]):
-                f.write(f"| {idx+1} | `{path}` |\n")
-            if len(only_in_2) > limit:
-                f.write(f"| ... | Và {len(only_in_2) - limit} tệp khác... |\n")
-            f.write("\n</details>\n\n")
+            if only_in_2:
+                f.write(f"<details>\n<summary><b>➕ Danh sách tệp chỉ có ở ROM 2 (Thêm mới ở ROM 2){limit_str}</b></summary>\n\n")
+                f.write("| STT | Đường dẫn (Path) |\n|---|---|\n")
+                items = only_in_2[:limit] if limit is not None else only_in_2
+                for idx, path in enumerate(items):
+                    f.write(f"| {idx+1} | `{path}` |\n")
+                if limit is not None and len(only_in_2) > limit:
+                    f.write(f"| ... | Và {len(only_in_2) - limit} tệp khác... |\n")
+                f.write("\n</details>\n\n")
 
-        if modified:
-            f.write("<details>\n<summary><b>⚙️ Danh sách tệp bị sửa đổi (Modified) (Tối đa hiển thị 100)</b></summary>\n\n")
-            f.write("| STT | Đường dẫn (Path) | Loại thay đổi | Chi tiết |\n|---|---|---|---|\n")
-            for idx, (path, change_type, detail) in enumerate(modified[:limit]):
-                f.write(f"| {idx+1} | `{path}` | {change_type} | {detail} |\n")
-            if len(modified) > limit:
-                f.write(f"| ... | Và {len(modified) - limit} tệp khác... | | |\n")
-            f.write("\n</details>\n\n")
-        
-        f.write("---\n\n")
+            if modified:
+                f.write(f"<details>\n<summary><b>⚙️ Danh sách tệp bị sửa đổi (Modified){limit_str}</b></summary>\n\n")
+                f.write("| STT | Đường dẫn (Path) | Loại thay đổi | Chi tiết |\n|---|---|---|---|\n")
+                items = modified[:limit] if limit is not None else modified
+                for idx, (path, change_type, detail) in enumerate(items):
+                    f.write(f"| {idx+1} | `{path}` | {change_type} | {detail} |\n")
+                if limit is not None and len(modified) > limit:
+                    f.write(f"| ... | Và {len(modified) - limit} tệp khác... | | |\n")
+                f.write("\n</details>\n\n")
+            
+            f.write("---\n\n")
+
+    write_report_file(output_md_path, limit=100)
+    if output_full_md_path:
+        write_report_file(output_full_md_path, limit=None)
 
     print(f"Comparison for {partition_name} done. Report appended to {output_md_path}")
+    if output_full_md_path:
+        print(f"Full report appended to {output_full_md_path}")
+
+def compare_partitions_main(dir1, dir2, partition_name, output_md_path, diff_out_dir=None, output_full_md_path=None):
+    compare_partitions(dir1, dir2, partition_name, output_md_path, diff_out_dir, output_full_md_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="So sánh nhanh 2 thư mục phân vùng ROM.")
@@ -154,7 +167,8 @@ if __name__ == "__main__":
     parser.add_argument("--dir2", required=True, help="Thư mục ROM 2")
     parser.add_argument("--partition", required=True, help="Tên phân vùng")
     parser.add_argument("--output", required=True, help="Đường dẫn file markdown kết quả")
+    parser.add_argument("--output-full", required=False, default=None, help="Đường dẫn file markdown kết quả đầy đủ (không giới hạn số tệp)")
     parser.add_argument("--diff-out", required=False, default=None, help="Thư mục lưu các file khác biệt để đóng gói")
     args = parser.parse_args()
 
-    compare_partitions(args.dir1, args.dir2, args.partition, args.output, args.diff_out)
+    compare_partitions(args.dir1, args.dir2, args.partition, args.output, args.diff_out, args.output_full)

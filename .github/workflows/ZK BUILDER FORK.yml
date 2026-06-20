@@ -58,6 +58,7 @@ jobs:
 
       - name: Initialize Comparison Report
         run: |
+          # Summary report
           echo "# Báo cáo so sánh ROM (ROM Comparison Report)" > compare_report.md
           echo "" >> compare_report.md
           echo "- **Thời gian thực hiện (UTC)**: $(date -u)" >> compare_report.md
@@ -67,6 +68,17 @@ jobs:
           echo "" >> compare_report.md
           echo "---" >> compare_report.md
           echo "" >> compare_report.md
+
+          # Full report
+          echo "# Báo cáo so sánh ROM Đầy đủ (Full ROM Comparison Report)" > compare_report_full.md
+          echo "" >> compare_report_full.md
+          echo "- **Thời gian thực hiện (UTC)**: $(date -u)" >> compare_report_full.md
+          echo "- **ROM 1 (Cũ)**: [Link](${{ inputs.rom_url_1 }})" >> compare_report_full.md
+          echo "- **ROM 2 (Mới)**: [Link](${{ inputs.rom_url_2 }})" >> compare_report_full.md
+          echo "- **Phân vùng kiểm tra**: \`${{ inputs.partitions }}\`" >> compare_report_full.md
+          echo "" >> compare_report_full.md
+          echo "---" >> compare_report_full.md
+          echo "" >> compare_report_full.md
 
       - name: Compare Partitions Sequentially
         run: |
@@ -110,21 +122,31 @@ jobs:
                     --dir2 "rom2_temp/extracted/${part}" \
                     --partition "$part" \
                     --output compare_report.md \
+                    --output-full compare_report_full.md \
                     --diff-out rom_diff_out
                 else
                   echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report.md
+                  echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report_full.md
                   echo "❌ Không thể giải nén cấu trúc thư mục của một trong hai ROM." >> compare_report.md
+                  echo "❌ Không thể giải nén cấu trúc thư mục của một trong hai ROM." >> compare_report_full.md
+                  echo "---" >> compare_report.md
                   echo "---" >> compare_report.md
                 fi
                 
               else
                 echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report.md
+                echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report_full.md
                 echo "⚠️ Phân vùng không tồn tại hoặc không thể trích xuất trong ROM 2." >> compare_report.md
+                echo "⚠️ Phân vùng không tồn tại hoặc không thể trích xuất trong ROM 2." >> compare_report.md
+                echo "---" >> compare_report.md
                 echo "---" >> compare_report.md
               fi
             else
               echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report.md
+              echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report_full.md
               echo "⚠️ Phân vùng không tồn tại hoặc không thể trích xuất trong ROM 1." >> compare_report.md
+              echo "⚠️ Phân vùng không tồn tại hoặc không thể trích xuất trong ROM 1." >> compare_report.md
+              echo "---" >> compare_report.md
               echo "---" >> compare_report.md
             fi
             
@@ -144,16 +166,18 @@ jobs:
             echo "ℹ️ No different files found to package."
           fi
 
-      - name: Upload Diff Zip to Gofile / Pixeldrain
+      - name: Upload Diff Zip & Full Report to Gofile / Pixeldrain
         run: |
+          GOFILE_LINK=""
+          PIXEL_LINK=""
+          GOFILE_REPORT_LINK=""
+          PIXEL_REPORT_LINK=""
+
           if [ -f "rom_diff.zip" ]; then
             echo "📤 Uploading diff package to storage services..."
             
-            GOFILE_LINK=""
-            PIXEL_LINK=""
-            
             # Upload to Pixeldrain
-            echo "📤 Uploading to Pixeldrain..."
+            echo "📤 Uploading diff zip to Pixeldrain..."
             if [ -n "${{ secrets.PIXELDRAIN_API_KEY }}" ]; then
               PD_RES=$(curl -sf -u ":${{ secrets.PIXELDRAIN_API_KEY }}" -F "file=@rom_diff.zip" "https://pixeldrain.com/api/file")
             else
@@ -168,7 +192,7 @@ jobs:
             fi
             
             # Upload to Gofile
-            echo "📤 Uploading to Gofile..."
+            echo "📤 Uploading diff zip to Gofile..."
             SERVER=$(curl -sf "https://api.gofile.io/servers" | jq -r '.data.servers[0].name // empty')
             if [ -n "$SERVER" ] && [ "$SERVER" != "null" ]; then
               if [ -n "${{ secrets.GOFILE_API_KEY }}" ]; then
@@ -184,21 +208,66 @@ jobs:
                 echo "⚠️ Gofile upload failed: $GF_RES"
               fi
             fi
+          fi
+
+          if [ -f "compare_report_full.md" ]; then
+            echo "📤 Uploading full comparison report to storage services..."
             
-            # Append links to report markdown
-            echo "### 📦 Tải xuống các file khác biệt (ROM Diff Package)" > temp_links.md
+            # Upload report to Pixeldrain
+            echo "📤 Uploading report to Pixeldrain..."
+            if [ -n "${{ secrets.PIXELDRAIN_API_KEY }}" ]; then
+              PD_RES=$(curl -sf -u ":${{ secrets.PIXELDRAIN_API_KEY }}" -F "file=@compare_report_full.md" "https://pixeldrain.com/api/file")
+            else
+              PD_RES=$(curl -sf -F "file=@compare_report_full.md" "https://pixeldrain.com/api/file")
+            fi
+            PD_ID=$(echo "$PD_RES" | jq -r '.id // empty')
+            if [ -n "$PD_ID" ]; then
+              PIXEL_REPORT_LINK="https://pixeldrain.com/u/${PD_ID}"
+              echo "✅ Pixeldrain Full Report: $PIXEL_REPORT_LINK"
+            else
+              echo "⚠️ Pixeldrain report upload failed: $PD_RES"
+            fi
+            
+            # Upload report to Gofile
+            echo "📤 Uploading report to Gofile..."
+            SERVER=$(curl -sf "https://api.gofile.io/servers" | jq -r '.data.servers[0].name // empty')
+            if [ -n "$SERVER" ] && [ "$SERVER" != "null" ]; then
+              if [ -n "${{ secrets.GOFILE_API_KEY }}" ]; then
+                GF_RES=$(curl -sf -H "Authorization: Bearer ${{ secrets.GOFILE_API_KEY }}" -F "file=@compare_report_full.md" "https://${SERVER}.gofile.io/contents/uploadfile")
+              else
+                GF_RES=$(curl -sf -F "file=@compare_report_full.md" "https://${SERVER}.gofile.io/contents/uploadfile")
+              fi
+              GF_LINK=$(echo "$GF_RES" | jq -r '.data.downloadPage // empty')
+              if [ -n "$GF_LINK" ]; then
+                GOFILE_REPORT_LINK="$GF_LINK"
+                echo "✅ Gofile Full Report: $GOFILE_REPORT_LINK"
+              else
+                echo "⚠️ Gofile report upload failed: $GF_RES"
+              fi
+            fi
+          fi
+
+          # Append download/view links to report summary
+          echo "### 📂 Tải xuống & Xem báo cáo" > temp_links.md
+          if [ -n "$PIXEL_LINK" ] || [ -n "$GOFILE_LINK" ]; then
+            echo "#### 📦 Các file khác biệt (ROM Diff Package)" >> temp_links.md
             [ -n "$PIXEL_LINK" ] && echo "- **Pixeldrain**: [Tải xuống]($PIXEL_LINK)" >> temp_links.md
             [ -n "$GOFILE_LINK" ] && echo "- **Gofile**: [Tải xuống]($GOFILE_LINK)" >> temp_links.md
-            echo "" >> temp_links.md
-            echo "---" >> temp_links.md
-            echo "" >> temp_links.md
-            
+          fi
+          if [ -n "$PIXEL_REPORT_LINK" ] || [ -n "$GOFILE_REPORT_LINK" ]; then
+            echo "#### 📄 Báo cáo so sánh đầy đủ (Full Report)" >> temp_links.md
+            [ -n "$PIXEL_REPORT_LINK" ] && echo "- **Pixeldrain**: [Xem/Tải xuống]($PIXEL_REPORT_LINK)" >> temp_links.md
+            [ -n "$GOFILE_REPORT_LINK" ] && echo "- **Gofile**: [Xem/Tải xuống]($GOFILE_REPORT_LINK)" >> temp_links.md
+          fi
+          echo "" >> temp_links.md
+          echo "---" >> temp_links.md
+          echo "" >> temp_links.md
+          
+          if [ -s temp_links.md ]; then
             cat temp_links.md compare_report.md > new_report.md
             mv -f new_report.md compare_report.md
-            rm -f temp_links.md
-          else
-            echo "ℹ️ No diff file found to upload."
           fi
+          rm -f temp_links.md
 
       - name: Clean up remaining files
         run: |
@@ -212,11 +281,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rom_comparison_report
-          path: compare_report.md
-
-      - name: Upload Diff Zip Artifact
-        if: hashFiles('rom_diff.zip') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: rom_diff_package
-          path: rom_diff.zip
+          path: compare_report*.md
