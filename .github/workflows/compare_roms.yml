@@ -66,16 +66,6 @@ jobs:
           wait
           echo "ROMs downloaded successfully."
 
-      - name: Extract payload.bin
-        run: |
-          echo "Extracting payload.bin from ROM 1..."
-          unzip -j -q rom1_temp/rom1.zip payload.bin -d rom1_temp || echo "ROM 1 might not contain payload.bin directly or download failed"
-          rm -f rom1_temp/rom1.zip
-          
-          echo "Extracting payload.bin from ROM 2..."
-          unzip -j -q rom2_temp/rom2.zip payload.bin -d rom2_temp || echo "ROM 2 might not contain payload.bin directly or download failed"
-          rm -f rom2_temp/rom2.zip
-
       - name: Initialize Comparison Report
         run: |
           echo "# Báo cáo so sánh ROM (ROM Comparison Report)" > compare_report.md
@@ -103,11 +93,11 @@ jobs:
             mkdir -p rom1_temp/images rom2_temp/images
             mkdir -p rom1_temp/extracted rom2_temp/extracted
             
-            # Dump partition
-            echo "Dumping $part from ROM 1 payload.bin..."
-            if ./zk_auto_build/tools/payload -p "$part" -o rom1_temp/images rom1_temp/payload.bin; then
-              echo "Dumping $part from ROM 2 payload.bin..."
-              if ./zk_auto_build/tools/payload -p "$part" -o rom2_temp/images rom2_temp/payload.bin; then
+            # Extract partition img using smart python script
+            echo "Extracting $part.img from ROM 1..."
+            if python3 builder/extract_partition.py --zip rom1_temp/rom1.zip --partition "$part" --output "rom1_temp/images/${part}.img" --tools zk_auto_build/tools; then
+              echo "Extracting $part.img from ROM 2..."
+              if python3 builder/extract_partition.py --zip rom2_temp/rom2.zip --partition "$part" --output "rom2_temp/images/${part}.img" --tools zk_auto_build/tools; then
                 
                 # Unpack erofs images
                 echo "Unpacking ROM 1 $part.img..."
@@ -137,12 +127,12 @@ jobs:
                 
               else
                 echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report.md
-                echo "⚠️ Phân vùng không tồn tại trong ROM 2." >> compare_report.md
+                echo "⚠️ Phân vùng không tồn tại hoặc không thể trích xuất trong ROM 2." >> compare_report.md
                 echo "---" >> compare_report.md
               fi
             else
               echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report.md
-              echo "⚠️ Phân vùng không tồn tại trong ROM 1." >> compare_report.md
+              echo "⚠️ Phân vùng không tồn tại hoặc không thể trích xuất trong ROM 1." >> compare_report.md
               echo "---" >> compare_report.md
             fi
             
