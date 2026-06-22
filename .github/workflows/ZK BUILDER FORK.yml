@@ -1,0 +1,476 @@
+name: ZK BUILDER STOCK/FORK/EU
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      URL:
+        description: "ROM URL (Stock OTA or Xiaomi.eu zip direct link)"
+        required: true
+      BRANCH:
+        description: "Branch ZK_AUTO_BUILD (auto = main for EU, stock for stock)"
+        required: true
+        default: "auto"
+      COMMIT_HASH:
+        description: "Optional ZK_AUTO_BUILD commit hash (leave empty for latest)"
+        required: false
+        default: ""
+      MODE:
+        description: "Build mode: base eu or stock"
+        type: choice
+        options:
+          - auto
+          - stock
+          - eu
+        default: auto
+      EXT4:
+        description: "EU mode: FORCE EXT4"
+        type: boolean
+        default: false
+      UPLOAD_GOFILE:
+        description: "Upload to Gofile"
+        type: boolean
+        default: false
+      UPLOAD_PIXELDRAIN:
+        description: "Upload to Pixeldrain"
+        type: boolean
+        default: true
+      OPTION_TOOLBOX:
+        description: "Add KaoriosToolbox"
+        type: boolean
+        default: true
+      OPTION_JAMESDSP:
+        description: "Add JamesDSP Sound Modifier"
+        type: boolean
+        default: true
+      OPTION_DEVICE_FEATURES:
+        description: "Modify Device Features (HyperUnlocked)"
+        type: boolean
+        default: true
+      OPTION_WIFI_BONDING:
+        description: "Apply Wifi bonding"
+        type: boolean
+        default: true
+      OPTION_THERMAL:
+        description: "Modify thermal config"
+        type: boolean
+        default: true
+      OPTION_INIT_RC:
+        description: "Add init.rc clear package cache"
+        type: boolean
+        default: true
+      OPTION_ZK_MODS:
+        description: "Add ZK mods"
+        type: boolean
+        default: true
+      OPTION_REMOVE_AI:
+        description: "Remove unnecessary AI features"
+        type: boolean
+        default: true
+      OPTION_PATCH_JARS:
+        description: "Patch JARs"
+        type: boolean
+        default: true
+      OPTION_PATCH_APKS:
+        description: "Patch APKs"
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          fetch-tags: false
+
+      - name: Check free disk space
+        id: diskcheck
+        run: |
+          FREE_GB=$(df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}')
+          echo "Free disk space: ${FREE_GB}GB"
+          if [ "$FREE_GB" -lt 50 ]; then
+            echo "need_cleanup=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "need_cleanup=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Maximize build disk space
+        if: steps.diskcheck.outputs.need_cleanup == 'true'
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-cached-tools: 'true'
+
+      - name: Setup build environment
+        run: |
+          sudo timedatectl set-timezone UTC
+          sudo apt-get update > /dev/null 2>&1
+          sudo apt-get install -y \
+            android-sdk-libsparse-utils aria2 curl device-tree-compiler erofs-utils \
+            g++ gcc git jq lz4 openjdk-17-jdk openjdk-17-jdk-headless openssh-client \
+            p7zip-full python-is-python3 python3 python3-pip python3-protobuf rsync xz-utils zip zipalign zlib1g-dev \
+            > /dev/null 2>&1
+          sudo pip install --break-system-packages protobuf > /dev/null 2>&1
+          python3 - <<'PY'
+          from google.protobuf import descriptor as _descriptor
+          print("protobuf import OK")
+          PY
+
+      - name: Detect ROM mode and name
+        run: |
+          set -e
+          DATE=$(TZ=UTC date +"%y%m%d")
+          ROM_URL="${{ github.event.inputs.URL }}"
+          BRANCH="${{ github.event.inputs.BRANCH }}"
+          BUILD_COMMIT="${{ github.event.inputs.COMMIT_HASH }}"
+          MODE="${{ github.event.inputs.MODE }}"
+          ROM_NAME="$(basename "${ROM_URL%%\?*}")"
+          ROM_NAME="${ROM_NAME%/download}"
+
+          if [ "$MODE" = "auto" ]; then
+            if [[ "$ROM_NAME" == xiaomi.eu_* ]]; then
+              MODE="eu"
+            else
+              MODE="stock"
+            fi
+          fi
+
+          REQUESTED_BRANCH_FOR_NAME="${BRANCH:-auto}"
+          if [ "$REQUESTED_BRANCH_FOR_NAME" = "hzz" ] || { [ "$REQUESTED_BRANCH_FOR_NAME" != "auto" ] && [ "$REQUESTED_BRANCH_FOR_NAME" != "main" ] && [ "$REQUESTED_BRANCH_FOR_NAME" != "stock" ]; }; then
+            ZK_STOCK_PREFIX="ZKOS-Fork"
+          else
+            ZK_STOCK_PREFIX="ZKOS"
+          fi
+
+          echo "ROM_URL=$ROM_URL" >> "$GITHUB_ENV"
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
+          echo "BUILD_COMMIT=$BUILD_COMMIT" >> "$GITHUB_ENV"
+          echo "BUILD_MODE=$MODE" >> "$GITHUB_ENV"
+          echo "ROM_NAME=$ROM_NAME" >> "$GITHUB_ENV"
+          echo "ZK_STOCK_PREFIX=$ZK_STOCK_PREFIX" >> "$GITHUB_ENV"
+
+          echo "🧩 BUILD_MODE=$MODE"
+          echo "🌿 BRANCH=$BRANCH"
+          if [ -n "$BUILD_COMMIT" ]; then
+            echo "🔖 COMMIT_HASH=$BUILD_COMMIT"
+          else
+            echo "🔖 COMMIT_HASH=latest"
+          fi
+          echo "📝 ROM_NAME=$ROM_NAME"
+          echo "🏷️ ZK_STOCK_PREFIX=$ZK_STOCK_PREFIX"
+
+          if [ "$MODE" = "eu" ]; then
+            if [[ "$ROM_NAME" == *_OS* ]]; then
+              if [[ "$ROM_NAME" =~ ^xiaomi\.eu_([^_]+)_(OS[0-9.]+)\.([A-Z0-9]+)_([0-9]+)\.zip$ ]]; then
+                DEVICE_RAW="${BASH_REMATCH[1]}"
+                DEVICE="${DEVICE_RAW^^}"
+                OS_VER="${BASH_REMATCH[2]}"
+                REGION="${BASH_REMATCH[3]}"
+                ZK_NAME="ZKOS_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+              else
+                DEVICE="XIAOMI"
+                ZK_NAME="ZKOS_XIAOMI_${DATE}"
+              fi
+            elif [[ "$ROM_NAME" == *_V14* ]]; then
+              if [[ "$ROM_NAME" =~ ^xiaomi\.eu_multi_([A-Za-z0-9]+(_[A-Za-z0-9]+)?)_(V14\.[0-9.]+)\.([A-Z0-9]+)_v14-([0-9]+)\.zip$ ]]; then
+                DEVICE_RAW="${BASH_REMATCH[1]}"
+                DEVICE="${DEVICE_RAW^^}"
+                OS_VER="${BASH_REMATCH[3]}"
+                REGION="${BASH_REMATCH[4]}"
+                ZK_NAME="ZKUI_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+              else
+                DEVICE="XIAOMI"
+                ZK_NAME="ZKUI_XIAOMI_${DATE}"
+              fi
+            else
+              DEVICE="XIAOMI"
+              ZK_NAME="ZK_XIAOMI_${DATE}"
+            fi
+          else
+            if [[ "$ROM_NAME" == *"-OS"* ]]; then
+              if [[ "$ROM_NAME" =~ ^([a-z0-9]+)-ota_full-(OS[0-9.]+)\.([A-Z0-9]+)-user-([0-9.]+)-.*\.zip$ ]]; then
+                DEVICE="${BASH_REMATCH[1]^^}"
+                OS_VER="${BASH_REMATCH[2]}"
+                REGION="${BASH_REMATCH[3]}"
+                ZK_NAME="${ZK_STOCK_PREFIX}_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+              elif [[ "$ROM_NAME" =~ ^([a-z0-9]+)_[a-z_]+-ota_full-(OS[0-9.]+)\.([A-Z0-9]+)-user-([0-9.]+)-.*\.zip$ ]]; then
+                DEVICE="${BASH_REMATCH[1]^^}"
+                OS_VER="${BASH_REMATCH[2]}"
+                REGION="${BASH_REMATCH[3]}"
+                ZK_NAME="${ZK_STOCK_PREFIX}_${DEVICE}_${OS_VER}.${REGION}_${DATE}"
+              else
+                echo "::error::Không parse được tên ROM stock: $ROM_NAME"
+                exit 1
+              fi
+            else
+              echo "::error::ROM stock không chứa '-OS'. Nếu là EU hãy chọn MODE=eu hoặc BRANCH=eu. ROM_NAME=$ROM_NAME"
+              exit 1
+            fi
+          fi
+
+          DEVICE_FINAL="${DEVICE:-XIAOMI}"
+          DEVICE_LC="$(printf '%s' "$DEVICE_FINAL" | tr '[:upper:]' '[:lower:]')"
+          case "$DEVICE_LC" in
+            myron|nezha|pudding|popsicle|pandora|byron)
+              TELEGRAM_CHAT_ID="-1003986558914"
+              ;;
+            *)
+              TELEGRAM_CHAT_ID="${{ secrets.TELEGRAM_TO }}"
+              ;;
+          esac
+
+          echo "ZK_NAME=$ZK_NAME" >> "$GITHUB_ENV"
+          echo "DEVICE=$DEVICE_FINAL" >> "$GITHUB_ENV"
+          echo "TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID" >> "$GITHUB_ENV"
+          echo "✅ ZK_NAME=$ZK_NAME DEVICE=$DEVICE_FINAL"
+          echo "📣 TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID"
+
+      - name: Download ROM files
+        run: |
+          set -e
+          mkdir -p "$GITHUB_WORKSPACE/ROM"
+          cd "$GITHUB_WORKSPACE/ROM"
+
+          if [ "$BUILD_MODE" = "eu" ]; then
+            echo "⬇️ Downloading EU ROM direct URL..."
+            timeout 9000 aria2c -s16 -x16 -j"$(nproc)" -c -U "Mozilla/5.0" \
+              -o "${ZK_NAME}.zip" "$ROM_URL" \
+              || { echo "::error::EU ROM download thất bại"; exit 1; }
+          else
+            echo "⬇️ Downloading Stock OTA ROM..."
+            timeout 9000 aria2c -s16 -x16 -j"$(nproc)" -c -U "Mozilla/5.0" \
+              -o "${ZK_NAME}.zip" "$ROM_URL" \
+              || { echo "::error::OTA download thất bại"; exit 1; }
+          fi
+
+          [ -s "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" ] \
+            || { echo "::error::Downloaded ROM is missing or empty"; exit 1; }
+          echo "✅ Download complete: $(du -h "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" | cut -f1)"
+
+      - name: Clone ZK AUTO BUILD sources
+        run: |
+          set -e
+          ZK_HOME="/home/runner/work/ZK_AUTO_BUILD/ZK_AUTO_BUILD"
+          echo "ZK_HOME=$ZK_HOME" >> "$GITHUB_ENV"
+
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PRIVATE_REPO_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          if [ -n "${BUILD_COMMIT:-}" ]; then
+            echo "🌿 Cloning ZK_AUTO_BUILD for commit checkout"
+            echo "🔖 Checkout commit: $BUILD_COMMIT"
+            git clone --no-checkout --no-tags --filter=blob:none \
+              git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+            cd "$ZK_HOME"
+            git fetch --no-tags --filter=blob:none origin "$BUILD_COMMIT" || true
+            git checkout --detach "$BUILD_COMMIT" \
+              || { echo "::error::Không checkout được commit '$BUILD_COMMIT'. Hãy kiểm tra hash commit có tồn tại trong ZK_AUTO_BUILD."; exit 1; }
+            ZK_BRANCH="commit-$BUILD_COMMIT"
+          else
+            REQUESTED_BRANCH="${BRANCH:-auto}"
+            if [ "$REQUESTED_BRANCH" = "auto" ]; then
+              if [ "$BUILD_MODE" = "eu" ]; then
+                ZK_BRANCH="main"
+              else
+                ZK_BRANCH="stock"
+              fi
+            else
+              ZK_BRANCH="$REQUESTED_BRANCH"
+            fi
+
+            echo "🌿 Cloning ZK_AUTO_BUILD branch: $ZK_BRANCH"
+            git clone --branch "$ZK_BRANCH" --single-branch --depth=1 --no-tags --filter=blob:none \
+              git@github.com:zuri1503/ZK_AUTO_BUILD.git "$ZK_HOME"
+            cd "$ZK_HOME"
+          fi
+
+          SOURCE_COMMIT="$(git rev-parse --short=12 HEAD)"
+          echo "SOURCE_COMMIT=$SOURCE_COMMIT" >> "$GITHUB_ENV"
+          echo "ZK_BRANCH=$ZK_BRANCH" >> "$GITHUB_ENV"
+          echo "✅ ZK_AUTO_BUILD source branch: $ZK_BRANCH"
+          echo "✅ ZK_AUTO_BUILD source commit: $SOURCE_COMMIT"
+
+          mkdir -p "$ZK_HOME/ROM"
+          mv -f "$GITHUB_WORKSPACE/ROM/${ZK_NAME}.zip" "$ZK_HOME/ROM/${ZK_NAME}.zip"
+          sudo chmod -R +x "$ZK_HOME"
+          echo "✅ Đã chuẩn bị sources branch $ZK_BRANCH"
+
+      - name: Build ProjectZK ROM
+        id: build
+        run: |
+          set -e
+          cd "$ZK_HOME"
+          echo "🔨 Bắt đầu build: $ZK_NAME"
+          echo "🧩 BUILD_MODE=$BUILD_MODE"
+          echo "🌿 ZK_BRANCH=${ZK_BRANCH:-unknown}"
+          echo "🔖 SOURCE_COMMIT=${SOURCE_COMMIT:-latest}"
+
+          if [ "$BUILD_MODE" = "eu" ]; then
+            sudo \
+              OPTION_TOOLBOX="${{ github.event.inputs.OPTION_TOOLBOX }}" \
+              OPTION_JAMESDSP="${{ github.event.inputs.OPTION_JAMESDSP }}" \
+              OPTION_DEVICE_FEATURES="${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" \
+              OPTION_WIFI_BONDING="${{ github.event.inputs.OPTION_WIFI_BONDING }}" \
+              OPTION_THERMAL="${{ github.event.inputs.OPTION_THERMAL }}" \
+              OPTION_INIT_RC="${{ github.event.inputs.OPTION_INIT_RC }}" \
+              OPTION_ZK_MODS="${{ github.event.inputs.OPTION_ZK_MODS }}" \
+              OPTION_REMOVE_AI="${{ github.event.inputs.OPTION_REMOVE_AI }}" \
+              OPTION_PATCH_JARS="${{ github.event.inputs.OPTION_PATCH_JARS }}" \
+              OPTION_PATCH_APKS="${{ github.event.inputs.OPTION_PATCH_APKS }}" \
+              bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_NAME" "${{ github.event.inputs.EXT4 }}"
+          else
+            sudo \
+              OPTION_TOOLBOX="${{ github.event.inputs.OPTION_TOOLBOX }}" \
+              OPTION_JAMESDSP="${{ github.event.inputs.OPTION_JAMESDSP }}" \
+              OPTION_DEVICE_FEATURES="${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" \
+              OPTION_WIFI_BONDING="${{ github.event.inputs.OPTION_WIFI_BONDING }}" \
+              OPTION_THERMAL="${{ github.event.inputs.OPTION_THERMAL }}" \
+              OPTION_INIT_RC="${{ github.event.inputs.OPTION_INIT_RC }}" \
+              OPTION_ZK_MODS="${{ github.event.inputs.OPTION_ZK_MODS }}" \
+              OPTION_REMOVE_AI="${{ github.event.inputs.OPTION_REMOVE_AI }}" \
+              OPTION_PATCH_JARS="${{ github.event.inputs.OPTION_PATCH_JARS }}" \
+              OPTION_PATCH_APKS="${{ github.event.inputs.OPTION_PATCH_APKS }}" \
+              bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_NAME"
+          fi
+
+          source "$GITHUB_ENV" 2>/dev/null || true
+
+          if [ -z "${ROM_OUTPUT:-}" ] || [ ! -f "$ROM_OUTPUT" ]; then
+            echo "⚠️ ROM_OUTPUT chưa được set, đang auto-detect..."
+            ROM_OUTPUT=$(find "$ZK_HOME" -maxdepth 6 -name "*.zip" \
+              ! -name "${ZK_NAME}.zip" \
+              ! -path "*/ROM/${ZK_NAME}.zip" \
+              | head -1)
+          fi
+
+          if [ -z "${ROM_OUTPUT:-}" ] || [ ! -f "$ROM_OUTPUT" ]; then
+            echo "::error::Không tìm được ROM output sau build. ROM_OUTPUT='${ROM_OUTPUT:-}'"
+            exit 1
+          fi
+
+          echo "ROM_OUTPUT=$ROM_OUTPUT" >> "$GITHUB_ENV"
+          echo "✅ ROM_OUTPUT=$ROM_OUTPUT"
+          echo "✅ ROM size: $(du -sh "$ROM_OUTPUT" | cut -f1)"
+
+      - name: Upload to Gofile
+        if: ${{ github.event.inputs.UPLOAD_GOFILE == 'true' }}
+        continue-on-error: true
+        run: |
+          echo "📤 Uploading lên Gofile..."
+          SERVER=$(curl -sf "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
+          if [ -z "$SERVER" ] || [ "$SERVER" = "null" ]; then
+            echo "::warning::Không lấy được Gofile server"
+          else
+            RESPONSE=$(curl -sf \
+              -H "Authorization: Bearer ${{ secrets.GOFILE_API_KEY }}" \
+              -F "file=@${ROM_OUTPUT}" \
+              "https://${SERVER}.gofile.io/contents/uploadfile")
+            GOFILE_LINK=$(echo "$RESPONSE" | jq -r '.data.downloadPage // empty')
+            if [ -n "$GOFILE_LINK" ]; then
+              echo "GOFILE_LINK=$GOFILE_LINK" >> "$GITHUB_ENV"
+              echo "✅ GOFILE_LINK=$GOFILE_LINK"
+            else
+              echo "::warning::Gofile upload thất bại: $RESPONSE"
+            fi
+          fi
+
+      - name: Upload to Pixeldrain
+        if: ${{ github.event.inputs.UPLOAD_PIXELDRAIN == 'true' }}
+        continue-on-error: true
+        run: |
+          echo "📤 Uploading lên Pixeldrain..."
+          RESPONSE=$(curl -sf \
+            -u ":${{ secrets.PIXELDRAIN_API_KEY }}" \
+            -F "file=@${ROM_OUTPUT}" \
+            "https://pixeldrain.com/api/file")
+          PD_ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+
+          if [ -n "$PD_ID" ]; then
+            PIXEL_LINK="https://pixeldrain.com/u/${PD_ID}"
+            PIXEL_CDN="https://cdn.pixeldrain.eu.cc/${PD_ID}"
+            echo "PIXEL_LINK=$PIXEL_LINK" >> "$GITHUB_ENV"
+            echo "PIXEL_CDN=$PIXEL_CDN" >> "$GITHUB_ENV"
+            echo "✅ PIXEL_LINK=$PIXEL_LINK"
+            echo "✅ PIXEL_CDN=$PIXEL_CDN"
+          else
+            echo "::warning::Pixeldrain upload thất bại: $RESPONSE"
+          fi
+
+      - name: Telegram Notification — Success
+        if: success()
+        run: |
+          ROM_FILENAME=$(basename "${ROM_OUTPUT}")
+          ROM_SIZE=$(du -sh "$ROM_OUTPUT" 2>/dev/null | cut -f1 || echo "?")
+          TG_CHAT="${TELEGRAM_CHAT_ID:-${{ secrets.TELEGRAM_TO }}}"
+
+          ROWS="[]"
+          append_btn() {
+            local label="$1" url="$2"
+            ROWS=$(printf '%s' "$ROWS" | jq \
+              --arg l "$label" --arg u "$url" \
+              '. += [[{"text":$l,"url":$u}]]')
+          }
+
+          [ -n "${GOFILE_LINK:-}" ] && append_btn "📥 Gofile" "$GOFILE_LINK"
+          [ -n "${PIXEL_LINK:-}" ] && append_btn "📥 Pixeldrain" "$PIXEL_LINK"
+          [ -n "${PIXEL_CDN:-}" ] && append_btn "⚡ Pixeldrain CDN" "$PIXEL_CDN"
+
+          BUILD_OPTIONS_TEXT=$(printf '🧰 <b>Build options:</b>\n• Add KaoriosToolbox: <code>%s</code>\n• Add JamesDSP Sound Modifier: <code>%s</code>\n• Modify Device Features (HyperUnlocked): <code>%s</code>\n• Apply Wifi bonding: <code>%s</code>\n• Modify thermal config: <code>%s</code>\n• Add init.rc clear package cache: <code>%s</code>\n• Add ZK mods: <code>%s</code>\n• Remove unnecessary AI features: <code>%s</code>\n• Patch JARs: <code>%s</code>\n• Patch APKs: <code>%s</code>' \
+            "${{ github.event.inputs.OPTION_TOOLBOX }}" "${{ github.event.inputs.OPTION_JAMESDSP }}" "${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" "${{ github.event.inputs.OPTION_WIFI_BONDING }}" "${{ github.event.inputs.OPTION_THERMAL }}" "${{ github.event.inputs.OPTION_INIT_RC }}" "${{ github.event.inputs.OPTION_ZK_MODS }}" "${{ github.event.inputs.OPTION_REMOVE_AI }}" "${{ github.event.inputs.OPTION_PATCH_JARS }}" "${{ github.event.inputs.OPTION_PATCH_APKS }}")
+          UPLOAD_OPTIONS_TEXT=$(printf '☁️ <b>Upload:</b>\n• Gofile: <code>%s</code>\n• Pixeldrain: <code>%s</code>' \
+            "${{ github.event.inputs.UPLOAD_GOFILE }}" "${{ github.event.inputs.UPLOAD_PIXELDRAIN }}")
+          TG_TEXT=$(printf '✅ <b>Build Thành Công!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>File:</b> <code>%s</code>\n💾 <b>Size:</b> %s\n%s\n%s' \
+            "$BUILD_MODE" "${ZK_BRANCH:-$BRANCH}" "${SOURCE_COMMIT:-latest}" "${DEVICE:-unknown}" "$ROM_FILENAME" "$ROM_SIZE" "$BUILD_OPTIONS_TEXT" "$UPLOAD_OPTIONS_TEXT")
+
+          PAYLOAD=$(jq -n \
+            --arg chat "$TG_CHAT" \
+            --arg text "$TG_TEXT" \
+            --argjson kb "$ROWS" \
+            '{chat_id:$chat, parse_mode:"HTML", text:$text, reply_markup:{inline_keyboard:$kb}}')
+
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+
+      - name: Telegram Notification — Failure
+        if: failure()
+        run: |
+          LOG_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          TG_CHAT="${TELEGRAM_CHAT_ID:-${{ secrets.TELEGRAM_TO }}}"
+
+          BUILD_OPTIONS_TEXT=$(printf '🧰 <b>Build options:</b>\n• Add KaoriosToolbox: <code>%s</code>\n• Add JamesDSP Sound Modifier: <code>%s</code>\n• Modify Device Features (HyperUnlocked): <code>%s</code>\n• Apply Wifi bonding: <code>%s</code>\n• Modify thermal config: <code>%s</code>\n• Add init.rc clear package cache: <code>%s</code>\n• Add ZK mods: <code>%s</code>\n• Remove unnecessary AI features: <code>%s</code>\n• Patch JARs: <code>%s</code>\n• Patch APKs: <code>%s</code>' \
+            "${{ github.event.inputs.OPTION_TOOLBOX }}" "${{ github.event.inputs.OPTION_JAMESDSP }}" "${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" "${{ github.event.inputs.OPTION_WIFI_BONDING }}" "${{ github.event.inputs.OPTION_THERMAL }}" "${{ github.event.inputs.OPTION_INIT_RC }}" "${{ github.event.inputs.OPTION_ZK_MODS }}" "${{ github.event.inputs.OPTION_REMOVE_AI }}" "${{ github.event.inputs.OPTION_PATCH_JARS }}" "${{ github.event.inputs.OPTION_PATCH_APKS }}")
+          UPLOAD_OPTIONS_TEXT=$(printf '☁️ <b>Upload:</b>\n• Gofile: <code>%s</code>\n• Pixeldrain: <code>%s</code>' \
+            "${{ github.event.inputs.UPLOAD_GOFILE }}" "${{ github.event.inputs.UPLOAD_PIXELDRAIN }}")
+          TG_TEXT=$(printf '❌ <b>Build Thất Bại!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>ROM:</b> <code>%s</code>\n%s\n%s\n🔗 <a href="%s">Xem log chi tiết</a>' \
+            "${BUILD_MODE:-unknown}" "${ZK_BRANCH:-${BRANCH:-unknown}}" "${SOURCE_COMMIT:-${BUILD_COMMIT:-latest}}" "${DEVICE:-unknown}" "${ZK_NAME:-unknown}" "$BUILD_OPTIONS_TEXT" "$UPLOAD_OPTIONS_TEXT" "$LOG_URL")
+
+          PAYLOAD=$(jq -n \
+            --arg chat "$TG_CHAT" \
+            --arg text "$TG_TEXT" \
+            --arg log_url "$LOG_URL" \
+            '{chat_id:$chat, parse_mode:"HTML", text:$text,
+              reply_markup:{inline_keyboard:[[{"text":"🔍 Xem Log","url":$log_url}]]}}')
+
+          curl -s -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo rm -rf "$ZK_HOME" || true
