@@ -120,10 +120,14 @@ jobs:
             g++ gcc git jq lz4 openjdk-17-jdk openjdk-17-jdk-headless openssh-client \
             p7zip-full python-is-python3 python3 python3-pip python3-protobuf rsync xz-utils zip zipalign zlib1g-dev \
             > /dev/null 2>&1
-          sudo pip install --break-system-packages protobuf > /dev/null 2>&1
+          sudo pip install --break-system-packages --quiet \
+            gdown google-api-python-client google-auth-httplib2 google-auth-oauthlib \
+            lz4 protobuf zstandard > /dev/null 2>&1
           python3 - <<'PY'
           from google.protobuf import descriptor as _descriptor
-          print("protobuf import OK")
+          import lz4.frame
+          import zstandard
+          print("python build deps import OK")
           PY
 
       - name: Detect ROM mode and name
