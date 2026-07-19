@@ -151,7 +151,7 @@ jobs:
 
           REQUESTED_BRANCH_FOR_NAME="${BRANCH:-auto}"
           if [ "$REQUESTED_BRANCH_FOR_NAME" = "hzz" ] || { [ "$REQUESTED_BRANCH_FOR_NAME" != "auto" ] && [ "$REQUESTED_BRANCH_FOR_NAME" != "main" ] && [ "$REQUESTED_BRANCH_FOR_NAME" != "stock" ]; }; then
-            ZK_STOCK_PREFIX="ZKOS-Fork"
+            ZK_STOCK_PREFIX="ZKOS-Bomb"
           else
             ZK_STOCK_PREFIX="ZKOS"
           fi
