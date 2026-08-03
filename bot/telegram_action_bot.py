@@ -193,7 +193,6 @@ def default_build_data(url: str, url2: str = "") -> dict[str, Any]:
             "OPTION_PATCH_JARS": True,
             "OPTION_PATCH_APKS": True,
             "OPTION_SELINUX_PATCH": True,
-            "OPTION_SHOW_LOG": False,
         },
         "uploads": {
             "UPLOAD_GOFILE": False,
@@ -293,7 +292,6 @@ def render_build_step(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
                 [btn("ZK Mods", "OPTION_ZK_MODS"), btn("Fast Charge", "OPTION_FAST_CHARGE")],
                 [btn("Remove AI", "OPTION_REMOVE_AI"), btn("Patch JARs", "OPTION_PATCH_JARS")],
                 [btn("Patch APKs", "OPTION_PATCH_APKS"), btn("SELinux Patch", "OPTION_SELINUX_PATCH")],
-                [btn("Show Log", "OPTION_SHOW_LOG")],
                 [{"text": "➡️ Tiếp tục (Upload)", "callback_data": "b_next_upload"}],
                 [
                     {"text": "◀️ Quay lại", "callback_data": "b_back"},
@@ -480,6 +478,7 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
                 "UPLOAD_GOFILE": "true" if bdata["uploads"]["UPLOAD_GOFILE"] else "false",
                 "UPLOAD_PIXELDRAIN": "true" if bdata["uploads"]["UPLOAD_PIXELDRAIN"] else "false",
             }
+            inputs["OPTION_SHOW_LOG"] = "false"
             for k, v in bdata["options"].items():
                 inputs[k] = "true" if v else "false"
 
