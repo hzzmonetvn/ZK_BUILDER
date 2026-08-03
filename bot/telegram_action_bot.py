@@ -640,23 +640,8 @@ def handle_text_message(message: dict[str, Any]) -> None:
             SESSIONS[session_key] = temp_session
         return
 
-    # 3. Unrecognized text message
-    if active_keys:
-        send_message(
-            chat_id,
-            "⚠️ <b>Đang có menu thiết lập dở dang.</b>\n"
-            "Vui lòng thao tác bằng các nút bấm bên dưới hoặc bấm nút <b>[❌ Hủy]</b> để hủy lệnh trước khi thực hiện lệnh mới.",
-            reply_to_message_id=msg_id,
-        )
-    else:
-        send_message(
-            chat_id,
-            "🤖 <b>ZK Builder Bot</b>\n\n"
-            "Bot chỉ xử lý các lệnh sau trong group này:\n"
-            "• <code>build + [link]</code> — Trigger workflow Build ROM\n"
-            "• <code>cp + [link1] + [link2]</code> — Trigger workflow So sánh ROM",
-            reply_to_message_id=msg_id,
-        )
+    # 3. Non-command messages: ignore completely (do not spam group)
+    return
 
 
 # ==============================================================================
@@ -668,7 +653,7 @@ def main() -> int:
         print("Error: TELEGRAM_TOKEN is required", file=sys.stderr)
         return 1
 
-    tg_api("deleteWebhook", {"drop_pending_updates": False})
+    tg_api("deleteWebhook", {"drop_pending_updates": True})
     print(
         f"Bot started successfully.\n"
         f"Target Group ID: {TARGET_GROUP_ID}\n"
@@ -676,6 +661,15 @@ def main() -> int:
     )
 
     offset = 0
+    # Skip all historical pending updates
+    try:
+        init_res = tg_api("getUpdates", {"offset": -1, "timeout": 0})
+        init_updates = init_res.get("result", [])
+        if init_updates:
+            offset = int(init_updates[-1].get("update_id", 0))
+            print(f"Skipped past updates up to ID: {offset}")
+    except Exception as exc:
+        print(f"Error fetching initial updates offset: {exc}", file=sys.stderr)
     while True:
         try:
             updates = tg_api("getUpdates", {"timeout": 50, "offset": offset + 1}).get("result", [])
