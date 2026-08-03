@@ -28,23 +28,11 @@ jobs:
           ref: main
           path: builder
 
-      - name: Checkout ZK_AUTO_BUILD (hzz branch)
-        uses: actions/checkout@v4
-        with:
-          repository: zuri1503/ZK_AUTO_BUILD
-          ref: hzz
-          path: zk_auto_build
-          ssh-key: ${{ secrets.PRIVATE_REPO_KEY }}
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y aria2 unzip python3 liblz4-tool zip jq android-sdk-libsparse-utils
-
       - name: Set up tools permissions
         run: |
-          chmod +x zk_auto_build/tools/payload
-          chmod +x zk_auto_build/tools/extract.erofs
+          chmod +x builder/tools/payload
+          chmod +x builder/tools/extract.erofs
+          chmod +x builder/tools/py/lpunpack.py
 
       - name: Download ROMs
         run: |
@@ -98,20 +86,20 @@ jobs:
             
             # Extract partition img using smart python script
             echo "Extracting $part.img from ROM 1..."
-            if python3 builder/extract_partition.py --zip rom1_temp/rom1.zip --partition "$part" --output "rom1_temp/images/${part}.img" --tools zk_auto_build/tools; then
+            if python3 builder/extract_partition.py --zip rom1_temp/rom1.zip --partition "$part" --output "rom1_temp/images/${part}.img" --tools builder/tools; then
               echo "Extracting $part.img from ROM 2..."
-              if python3 builder/extract_partition.py --zip rom2_temp/rom2.zip --partition "$part" --output "rom2_temp/images/${part}.img" --tools zk_auto_build/tools; then
+              if python3 builder/extract_partition.py --zip rom2_temp/rom2.zip --partition "$part" --output "rom2_temp/images/${part}.img" --tools builder/tools; then
                 
                 # Unpack erofs images
                 echo "Unpacking ROM 1 $part.img..."
                 if [ -f "rom1_temp/images/${part}.img" ]; then
-                  ./zk_auto_build/tools/extract.erofs -x -i "rom1_temp/images/${part}.img" -o "rom1_temp/extracted" > /dev/null 2>&1 || echo "Failed to unpack ROM 1 ${part}.img"
+                  ./builder/tools/extract.erofs -x -i "rom1_temp/images/${part}.img" -o "rom1_temp/extracted" > /dev/null 2>&1 || echo "Failed to unpack ROM 1 ${part}.img"
                   rm -f "rom1_temp/images/${part}.img"
                 fi
                 
                 echo "Unpacking ROM 2 $part.img..."
                 if [ -f "rom2_temp/images/${part}.img" ]; then
-                  ./zk_auto_build/tools/extract.erofs -x -i "rom2_temp/images/${part}.img" -o "rom2_temp/extracted" > /dev/null 2>&1 || echo "Failed to unpack ROM 2 ${part}.img"
+                  ./builder/tools/extract.erofs -x -i "rom2_temp/images/${part}.img" -o "rom2_temp/extracted" > /dev/null 2>&1 || echo "Failed to unpack ROM 2 ${part}.img"
                   rm -f "rom2_temp/images/${part}.img"
                 fi
                 
