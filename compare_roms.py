@@ -4,22 +4,42 @@ import argparse
 import shutil
 
 def get_file_hash_and_size(filepath):
-    """Returns MD5 hash and size of a file."""
+    """Returns MD5 hash and size of a file or symlink."""
     hasher = hashlib.md5()
     try:
+        if os.path.islink(filepath):
+            target = os.readlink(filepath)
+            return hashlib.md5(target.encode('utf-8')).hexdigest(), len(target)
         size = os.path.getsize(filepath)
         with open(filepath, 'rb') as f:
             for chunk in iter(lambda: f.read(65536), b''):
                 hasher.update(chunk)
         return hasher.hexdigest(), size
-    except Exception as e:
+    except Exception:
         return None, 0
 
 def scan_directory(base_dir):
-    """Scans directory recursively and returns a dict mapping relative paths to (size, hash)."""
+    """Scans directory recursively and returns a dict mapping relative paths to (size, hash) or ("symlink", target)."""
     file_map = {}
+    if not os.path.exists(base_dir):
+        return file_map
     base_dir = os.path.abspath(base_dir)
-    for root, dirs, files in os.walk(base_dir):
+    for root, dirs, files in os.walk(base_dir, followlinks=False):
+        # Handle symlinks to directories (os.walk includes dir symlinks in `dirs` but won't recurse into them)
+        dirs_to_skip = []
+        for d in dirs:
+            full_path = os.path.join(root, d)
+            if os.path.islink(full_path):
+                dirs_to_skip.append(d)
+                rel_path = os.path.relpath(full_path, base_dir)
+                try:
+                    target = os.readlink(full_path)
+                    file_map[rel_path] = ("symlink", target)
+                except Exception:
+                    pass
+        for d in dirs_to_skip:
+            dirs.remove(d)
+
         for file in files:
             full_path = os.path.join(root, file)
             rel_path = os.path.relpath(full_path, base_dir)
@@ -38,19 +58,26 @@ def scan_directory(base_dir):
     return file_map
 
 def safe_copy(src, dst):
-    """Safely copies a file. If it's a symlink, creates a text file describing the link target."""
+    """Safely copies a file or symlink."""
     try:
+        if not os.path.exists(src) and not os.path.islink(src):
+            return
         os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if os.path.exists(dst) or os.path.islink(dst):
+            if os.path.isdir(dst) and not os.path.islink(dst):
+                shutil.rmtree(dst, ignore_errors=True)
+            else:
+                os.remove(dst)
         if os.path.islink(src):
             target = os.readlink(src)
             with open(dst, "w", encoding="utf-8") as f:
                 f.write(f"[SYMLINK TARGET]: {target}")
-        else:
+        elif os.path.isfile(src):
             shutil.copy2(src, dst)
     except Exception as e:
         print(f"Warning: Failed to copy {src} to {dst}: {e}")
 
-def compare_partitions(dir1, dir2, partition_name, output_md_path, diff_out_dir=None):
+def compare_partitions(dir1, dir2, partition_name, output_md_path, diff_out_dir=None, output_full_md_path=None):
     print(f"Scanning {dir1}...")
     files1 = scan_directory(dir1)
     print(f"Scanning {dir2}...")
@@ -171,4 +198,11 @@ if __name__ == "__main__":
     parser.add_argument("--diff-out", required=False, default=None, help="Thư mục lưu các file khác biệt để đóng gói")
     args = parser.parse_args()
 
-    compare_partitions(args.dir1, args.dir2, args.partition, args.output, args.diff_out, args.output_full)
+    compare_partitions(
+        dir1=args.dir1,
+        dir2=args.dir2,
+        partition_name=args.partition,
+        output_md_path=args.output,
+        diff_out_dir=args.diff_out,
+        output_full_md_path=args.output_full
+    )

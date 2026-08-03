@@ -65,6 +65,10 @@ on:
         description: "Add ZK mods"
         type: boolean
         default: true
+      OPTION_FAST_CHARGE:
+        description: "Enable fast charge"
+        type: boolean
+        default: true
       OPTION_REMOVE_AI:
         description: "Remove unnecessary AI features"
         type: boolean
@@ -77,6 +81,14 @@ on:
         description: "Patch APKs"
         type: boolean
         default: true
+      OPTION_SELINUX_PATCH:
+        description: "Apply SELinux patch"
+        type: boolean
+        default: true
+      OPTION_SHOW_LOG:
+        description: "Show detailed build log"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -330,9 +342,12 @@ jobs:
               OPTION_THERMAL="${{ github.event.inputs.OPTION_THERMAL }}" \
               OPTION_INIT_RC="${{ github.event.inputs.OPTION_INIT_RC }}" \
               OPTION_ZK_MODS="${{ github.event.inputs.OPTION_ZK_MODS }}" \
+              OPTION_FAST_CHARGE="${{ github.event.inputs.OPTION_FAST_CHARGE }}" \
               OPTION_REMOVE_AI="${{ github.event.inputs.OPTION_REMOVE_AI }}" \
               OPTION_PATCH_JARS="${{ github.event.inputs.OPTION_PATCH_JARS }}" \
               OPTION_PATCH_APKS="${{ github.event.inputs.OPTION_PATCH_APKS }}" \
+              OPTION_SELINUX_PATCH="${{ github.event.inputs.OPTION_SELINUX_PATCH }}" \
+              OPTION_SHOW_LOG="${{ github.event.inputs.OPTION_SHOW_LOG }}" \
               bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_NAME" "${{ github.event.inputs.EXT4 }}"
           else
             sudo \
@@ -343,9 +358,12 @@ jobs:
               OPTION_THERMAL="${{ github.event.inputs.OPTION_THERMAL }}" \
               OPTION_INIT_RC="${{ github.event.inputs.OPTION_INIT_RC }}" \
               OPTION_ZK_MODS="${{ github.event.inputs.OPTION_ZK_MODS }}" \
+              OPTION_FAST_CHARGE="${{ github.event.inputs.OPTION_FAST_CHARGE }}" \
               OPTION_REMOVE_AI="${{ github.event.inputs.OPTION_REMOVE_AI }}" \
               OPTION_PATCH_JARS="${{ github.event.inputs.OPTION_PATCH_JARS }}" \
               OPTION_PATCH_APKS="${{ github.event.inputs.OPTION_PATCH_APKS }}" \
+              OPTION_SELINUX_PATCH="${{ github.event.inputs.OPTION_SELINUX_PATCH }}" \
+              OPTION_SHOW_LOG="${{ github.event.inputs.OPTION_SHOW_LOG }}" \
               bash "$ZK_HOME/build.sh" "$GITHUB_ENV" "$ZK_NAME"
           fi
 
@@ -431,8 +449,8 @@ jobs:
           [ -n "${PIXEL_LINK:-}" ] && append_btn "📥 Pixeldrain" "$PIXEL_LINK"
           [ -n "${PIXEL_CDN:-}" ] && append_btn "⚡ Pixeldrain CDN" "$PIXEL_CDN"
 
-          BUILD_OPTIONS_TEXT=$(printf '🧰 <b>Build options:</b>\n• Add KaoriosToolbox: <code>%s</code>\n• Add JamesDSP Sound Modifier: <code>%s</code>\n• Modify Device Features (HyperUnlocked): <code>%s</code>\n• Apply Wifi bonding: <code>%s</code>\n• Modify thermal config: <code>%s</code>\n• Add init.rc clear package cache: <code>%s</code>\n• Add ZK mods: <code>%s</code>\n• Remove unnecessary AI features: <code>%s</code>\n• Patch JARs: <code>%s</code>\n• Patch APKs: <code>%s</code>' \
-            "${{ github.event.inputs.OPTION_TOOLBOX }}" "${{ github.event.inputs.OPTION_JAMESDSP }}" "${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" "${{ github.event.inputs.OPTION_WIFI_BONDING }}" "${{ github.event.inputs.OPTION_THERMAL }}" "${{ github.event.inputs.OPTION_INIT_RC }}" "${{ github.event.inputs.OPTION_ZK_MODS }}" "${{ github.event.inputs.OPTION_REMOVE_AI }}" "${{ github.event.inputs.OPTION_PATCH_JARS }}" "${{ github.event.inputs.OPTION_PATCH_APKS }}")
+          BUILD_OPTIONS_TEXT=$(printf '🧰 <b>Build options:</b>\n• Add KaoriosToolbox: <code>%s</code>\n• Add JamesDSP Sound Modifier: <code>%s</code>\n• Modify Device Features (HyperUnlocked): <code>%s</code>\n• Apply Wifi bonding: <code>%s</code>\n• Modify thermal config: <code>%s</code>\n• Add init.rc clear package cache: <code>%s</code>\n• Add ZK mods: <code>%s</code>\n• Enable Fast Charge: <code>%s</code>\n• Remove unnecessary AI features: <code>%s</code>\n• Patch JARs: <code>%s</code>\n• Patch APKs: <code>%s</code>\n• Apply SELinux patch: <code>%s</code>\n• Show detailed log: <code>%s</code>' \
+            "${{ github.event.inputs.OPTION_TOOLBOX }}" "${{ github.event.inputs.OPTION_JAMESDSP }}" "${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" "${{ github.event.inputs.OPTION_WIFI_BONDING }}" "${{ github.event.inputs.OPTION_THERMAL }}" "${{ github.event.inputs.OPTION_INIT_RC }}" "${{ github.event.inputs.OPTION_ZK_MODS }}" "${{ github.event.inputs.OPTION_FAST_CHARGE }}" "${{ github.event.inputs.OPTION_REMOVE_AI }}" "${{ github.event.inputs.OPTION_PATCH_JARS }}" "${{ github.event.inputs.OPTION_PATCH_APKS }}" "${{ github.event.inputs.OPTION_SELINUX_PATCH }}" "${{ github.event.inputs.OPTION_SHOW_LOG }}")
           UPLOAD_OPTIONS_TEXT=$(printf '☁️ <b>Upload:</b>\n• Gofile: <code>%s</code>\n• Pixeldrain: <code>%s</code>' \
             "${{ github.event.inputs.UPLOAD_GOFILE }}" "${{ github.event.inputs.UPLOAD_PIXELDRAIN }}")
           TG_TEXT=$(printf '✅ <b>Build Thành Công!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>File:</b> <code>%s</code>\n💾 <b>Size:</b> %s\n%s\n%s' \
@@ -455,8 +473,8 @@ jobs:
           LOG_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           TG_CHAT="${TELEGRAM_CHAT_ID:-${{ secrets.TELEGRAM_TO }}}"
 
-          BUILD_OPTIONS_TEXT=$(printf '🧰 <b>Build options:</b>\n• Add KaoriosToolbox: <code>%s</code>\n• Add JamesDSP Sound Modifier: <code>%s</code>\n• Modify Device Features (HyperUnlocked): <code>%s</code>\n• Apply Wifi bonding: <code>%s</code>\n• Modify thermal config: <code>%s</code>\n• Add init.rc clear package cache: <code>%s</code>\n• Add ZK mods: <code>%s</code>\n• Remove unnecessary AI features: <code>%s</code>\n• Patch JARs: <code>%s</code>\n• Patch APKs: <code>%s</code>' \
-            "${{ github.event.inputs.OPTION_TOOLBOX }}" "${{ github.event.inputs.OPTION_JAMESDSP }}" "${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" "${{ github.event.inputs.OPTION_WIFI_BONDING }}" "${{ github.event.inputs.OPTION_THERMAL }}" "${{ github.event.inputs.OPTION_INIT_RC }}" "${{ github.event.inputs.OPTION_ZK_MODS }}" "${{ github.event.inputs.OPTION_REMOVE_AI }}" "${{ github.event.inputs.OPTION_PATCH_JARS }}" "${{ github.event.inputs.OPTION_PATCH_APKS }}")
+          BUILD_OPTIONS_TEXT=$(printf '🧰 <b>Build options:</b>\n• Add KaoriosToolbox: <code>%s</code>\n• Add JamesDSP Sound Modifier: <code>%s</code>\n• Modify Device Features (HyperUnlocked): <code>%s</code>\n• Apply Wifi bonding: <code>%s</code>\n• Modify thermal config: <code>%s</code>\n• Add init.rc clear package cache: <code>%s</code>\n• Add ZK mods: <code>%s</code>\n• Enable Fast Charge: <code>%s</code>\n• Remove unnecessary AI features: <code>%s</code>\n• Patch JARs: <code>%s</code>\n• Patch APKs: <code>%s</code>\n• Apply SELinux patch: <code>%s</code>\n• Show detailed log: <code>%s</code>' \
+            "${{ github.event.inputs.OPTION_TOOLBOX }}" "${{ github.event.inputs.OPTION_JAMESDSP }}" "${{ github.event.inputs.OPTION_DEVICE_FEATURES }}" "${{ github.event.inputs.OPTION_WIFI_BONDING }}" "${{ github.event.inputs.OPTION_THERMAL }}" "${{ github.event.inputs.OPTION_INIT_RC }}" "${{ github.event.inputs.OPTION_ZK_MODS }}" "${{ github.event.inputs.OPTION_FAST_CHARGE }}" "${{ github.event.inputs.OPTION_REMOVE_AI }}" "${{ github.event.inputs.OPTION_PATCH_JARS }}" "${{ github.event.inputs.OPTION_PATCH_APKS }}" "${{ github.event.inputs.OPTION_SELINUX_PATCH }}" "${{ github.event.inputs.OPTION_SHOW_LOG }}")
           UPLOAD_OPTIONS_TEXT=$(printf '☁️ <b>Upload:</b>\n• Gofile: <code>%s</code>\n• Pixeldrain: <code>%s</code>' \
             "${{ github.event.inputs.UPLOAD_GOFILE }}" "${{ github.event.inputs.UPLOAD_PIXELDRAIN }}")
           TG_TEXT=$(printf '❌ <b>Build Thất Bại!</b>\n🧩 <b>Mode:</b> <code>%s</code>\n🌿 <b>Branch:</b> <code>%s</code>\n🔖 <b>Commit:</b> <code>%s</code>\n📱 <b>Device:</b> <code>%s</code>\n📦 <b>ROM:</b> <code>%s</code>\n%s\n%s\n🔗 <a href="%s">Xem log chi tiết</a>' \

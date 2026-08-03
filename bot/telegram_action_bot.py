@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Telegram bot that dispatches only the ZK BUILDER FORK GitHub Actions workflow."""
+"""
+Telegram Action Bot for ZK Builder
+Operates strictly in target group (-1003989834547) with interactive inline button workflows.
+"""
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -13,38 +17,33 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+# Configuration
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
-ALLOWED_CHAT = os.getenv("TELEGRAM_TO", "").strip()
+TARGET_GROUP_ID = os.getenv(
+    "TARGET_GROUP_ID",
+    os.getenv("TELEGRAM_TO", os.getenv("ALLOWED_CHAT", "-1003989834547"))
+).strip()
+
 GITHUB_TOKEN = (
     os.getenv("ACTIONS_PAT", "").strip()
     or os.getenv("GH_TOKEN", "").strip()
     or os.getenv("GITHUB_TOKEN", "").strip()
 )
 REPOSITORY = os.getenv("GH_REPOSITORY", os.getenv("GITHUB_REPOSITORY", "")).strip()
-WORKFLOW_FILE = os.getenv("WORKFLOW_FILE", "ZK BUILDER FORK.yml").strip()
-WORKFLOW_REF = os.getenv("WORKFLOW_REF", "main").strip()
 
-HELP_TEXT = """🤖 <b>ZK Builder Bot</b>
+# Active interactive wizard sessions in memory: key = f"{chat_id}_{message_id}"
+SESSIONS: dict[str, dict[str, Any]] = {}
 
-Bot này chỉ chạy workflow:
-<code>.github/workflows/ZK BUILDER FORK.yml</code>
-
-Lệnh build:
-<code>/build OTA_URL</code>
-<code>/build OTA_URL FASTBOOT_URL</code>
-<code>/build OTA_URL branch=hzz gofile=false pixeldrain=true</code>
-<code>/build OTA_URL FASTBOOT_URL branch=hzz</code>
-
-Mặc định:
-• branch=hzz
-• gofile=false
-• pixeldrain=true
-"""
-
-URL_RE = re.compile(r"^https?://", re.IGNORECASE)
+URL_RE = re.compile(r"https?://[^\s+]+", re.IGNORECASE)
 
 
-def request_json(url: str, *, method: str = "GET", data: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict[str, Any]:
+def request_json(
+    url: str,
+    *,
+    method: str = "GET",
+    data: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
     body = None
     req_headers = headers.copy() if headers else {}
     if data is not None:
@@ -70,91 +69,88 @@ def tg_api(method: str, payload: dict[str, Any] | None = None) -> dict[str, Any]
     )
 
 
-def send_message(chat_id: int | str, text: str, reply_markup: dict[str, Any] | None = None) -> None:
+def is_allowed_chat(chat_id: int | str) -> bool:
+    return str(chat_id) == TARGET_GROUP_ID
+
+
+def split_text(text: str, max_length: int = 4000) -> list[str]:
+    """Splits long message text into chunks smaller than max_length."""
+    if len(text) <= max_length:
+        return [text]
+    chunks = []
+    while text:
+        if len(text) <= max_length:
+            chunks.append(text)
+            break
+        split_at = text.rfind("\n", 0, max_length)
+        if split_at == -1:
+            split_at = max_length
+        chunks.append(text[:split_at])
+        text = text[split_at:].lstrip("\n")
+    return chunks
+
+
+def send_message(
+    chat_id: int | str,
+    text: str,
+    reply_markup: dict[str, Any] | None = None,
+    reply_to_message_id: int | None = None,
+) -> dict[str, Any]:
+    chunks = split_text(text)
+    res = {}
+    for i, chunk in enumerate(chunks):
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": chunk,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        if reply_markup and i == len(chunks) - 1:
+            payload["reply_markup"] = reply_markup
+        if reply_to_message_id and i == 0:
+            payload["reply_to_message_id"] = reply_to_message_id
+        res = tg_api("sendMessage", payload)
+    return res
+
+
+def edit_message(
+    chat_id: int | str,
+    message_id: int,
+    text: str,
+    reply_markup: dict[str, Any] | None = None,
+) -> None:
+    chunks = split_text(text)
     payload: dict[str, Any] = {
         "chat_id": chat_id,
-        "text": text,
+        "message_id": message_id,
+        "text": chunks[0],
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    tg_api("sendMessage", payload)
+    try:
+        tg_api("editMessageText", payload)
+    except Exception as exc:
+        print(f"Edit message error: {exc}", file=sys.stderr)
 
 
-def parse_bool(value: str, default: bool) -> bool:
-    if value.lower() in {"1", "true", "yes", "y", "on"}:
-        return True
-    if value.lower() in {"0", "false", "no", "n", "off"}:
-        return False
-    return default
+def answer_callback(callback_id: str, text: str = "") -> None:
+    try:
+        tg_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
+    except Exception:
+        pass
 
 
-def parse_build_command(text: str) -> dict[str, str]:
-    parts = text.split()
-    if len(parts) < 2:
-        raise ValueError("Thiếu OTA_URL. Gõ /help để xem ví dụ.")
-
-    ota_url = ""
-    fastboot_url = ""
-    branch = "hzz"
-    gofile = False
-    pixeldrain = True
-
-    positional: list[str] = []
-    for item in parts[1:]:
-        if "=" in item:
-            key, value = item.split("=", 1)
-            key = key.strip().lower().lstrip("-")
-            value = value.strip()
-            if key in {"branch", "br"}:
-                branch = value or branch
-            elif key in {"gofile", "upload_gofile"}:
-                gofile = parse_bool(value, gofile)
-            elif key in {"pixeldrain", "upload_pixeldrain", "pd"}:
-                pixeldrain = parse_bool(value, pixeldrain)
-            elif key in {"url2", "fastboot"}:
-                fastboot_url = value
-            else:
-                raise ValueError(f"Không hiểu option: {key}")
-        else:
-            positional.append(item)
-
-    if positional:
-        ota_url = positional[0]
-    if len(positional) >= 2:
-        if URL_RE.match(positional[1]):
-            fastboot_url = positional[1]
-        else:
-            branch = positional[1]
-    if len(positional) >= 3:
-        branch = positional[2]
-
-    if not URL_RE.match(ota_url):
-        raise ValueError("OTA_URL phải bắt đầu bằng http:// hoặc https://")
-    if fastboot_url and not URL_RE.match(fastboot_url):
-        raise ValueError("FASTBOOT_URL phải bắt đầu bằng http:// hoặc https://")
-    if not branch:
-        raise ValueError("BRANCH không được để trống")
-
-    return {
-        "URL": ota_url,
-        "URL2": fastboot_url,
-        "BRANCH": branch,
-        "UPLOAD_GOFILE": "true" if gofile else "false",
-        "UPLOAD_PIXELDRAIN": "true" if pixeldrain else "false",
-    }
-
-
-def dispatch_workflow(inputs: dict[str, str]) -> str:
+def dispatch_github_workflow(workflow_file: str, inputs: dict[str, str]) -> str:
     if not REPOSITORY:
-        raise RuntimeError("Thiếu GH_REPOSITORY/GITHUB_REPOSITORY")
+        raise RuntimeError("Thiếu cấu hình GH_REPOSITORY / GITHUB_REPOSITORY")
     if not GITHUB_TOKEN:
-        raise RuntimeError("Thiếu ACTIONS_PAT hoặc GITHUB_TOKEN")
+        raise RuntimeError("Thiếu GITHUB_TOKEN / ACTIONS_PAT")
 
-    encoded_workflow = urllib.parse.quote(WORKFLOW_FILE, safe="")
+    encoded_workflow = urllib.parse.quote(workflow_file, safe="")
     url = f"https://api.github.com/repos/{REPOSITORY}/actions/workflows/{encoded_workflow}/dispatches"
-    payload = {"ref": WORKFLOW_REF, "inputs": inputs}
+    payload = {"ref": "main", "inputs": inputs}
     headers = {
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept": "application/vnd.github+json",
@@ -162,63 +158,513 @@ def dispatch_workflow(inputs: dict[str, str]) -> str:
         "User-Agent": "zk-builder-telegram-bot",
     }
     request_json(url, method="POST", data=payload, headers=headers)
-    return f"https://github.com/{REPOSITORY}/actions/workflows/{urllib.parse.quote(WORKFLOW_FILE)}"
+    return f"https://github.com/{REPOSITORY}/actions/workflows/{encoded_workflow}"
 
 
-def is_allowed(chat_id: int | str) -> bool:
-    if not ALLOWED_CHAT:
+def parse_urls_from_text(text: str) -> list[str]:
+    return URL_RE.findall(text)
+
+
+def default_build_data(url: str, url2: str = "") -> dict[str, Any]:
+    return {
+        "url": url,
+        "url2": url2,
+        "branch": "hzz",
+        "mode": "auto",
+        "options": {
+            "OPTION_TOOLBOX": True,
+            "OPTION_JAMESDSP": True,
+            "OPTION_DEVICE_FEATURES": True,
+            "OPTION_WIFI_BONDING": True,
+            "OPTION_THERMAL": True,
+            "OPTION_INIT_RC": True,
+            "OPTION_ZK_MODS": True,
+            "OPTION_FAST_CHARGE": True,
+            "OPTION_REMOVE_AI": True,
+            "OPTION_PATCH_JARS": True,
+            "OPTION_PATCH_APKS": True,
+            "OPTION_SELINUX_PATCH": True,
+            "OPTION_SHOW_LOG": False,
+        },
+        "uploads": {
+            "UPLOAD_GOFILE": False,
+            "UPLOAD_PIXELDRAIN": True,
+        },
+    }
+
+
+def default_cp_data(url1: str, url2: str) -> dict[str, Any]:
+    return {
+        "url1": url1,
+        "url2": url2,
+        "partitions": {
+            "system": True,
+            "vendor": True,
+            "product": True,
+            "system_ext": True,
+            "odm": False,
+            "mi_ext": False,
+        },
+    }
+
+
+# ==============================================================================
+# MENU RENDERERS & WIZARD STEPS
+# ==============================================================================
+
+def render_build_step(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    step = session["step"]
+    data = session["data"]
+    url = data["url"]
+
+    if step == 1:
+        # Step 1: Select Branch
+        text = (
+            f"🔨 <b>Cấu hình Build ROM — Bước 1/4: Chọn Branch</b>\n"
+            f"📦 <b>ROM URL:</b> <code>{url}</code>\n\n"
+            f"Vui lòng chọn Branch ZK_AUTO_BUILD:"
+        )
+        kbd = {
+            "inline_keyboard": [
+                [
+                    {"text": f"{'▶ ' if data['branch']=='hzz' else ''}🌿 hzz (Mặc định)", "callback_data": "b_br:hzz"},
+                    {"text": f"{'▶ ' if data['branch']=='main' else ''}🌿 main", "callback_data": "b_br:main"},
+                    {"text": f"{'▶ ' if data['branch']=='stock' else ''}🌿 stock", "callback_data": "b_br:stock"},
+                ],
+                [
+                    {"text": "◀️ Quay lại", "callback_data": "b_back"},
+                    {"text": "❌ Hủy", "callback_data": "b_cancel"},
+                ],
+            ]
+        }
+        return text, kbd
+
+    elif step == 2:
+        # Step 2: Select Mode
+        text = (
+            f"🔨 <b>Cấu hình Build ROM — Bước 2/4: Chọn Mode</b>\n"
+            f"📦 <b>ROM URL:</b> <code>{url}</code>\n"
+            f"🌿 <b>Branch:</b> <code>{data['branch']}</code>\n\n"
+            f"Vui lòng chọn Build Mode:"
+        )
+        kbd = {
+            "inline_keyboard": [
+                [
+                    {"text": f"{'▶ ' if data['mode']=='auto' else ''}🧩 auto", "callback_data": "b_mode:auto"},
+                    {"text": f"{'▶ ' if data['mode']=='stock' else ''}🧩 stock", "callback_data": "b_mode:stock"},
+                    {"text": f"{'▶ ' if data['mode']=='eu' else ''}🧩 eu", "callback_data": "b_mode:eu"},
+                ],
+                [
+                    {"text": "◀️ Quay lại", "callback_data": "b_back"},
+                    {"text": "❌ Hủy", "callback_data": "b_cancel"},
+                ],
+            ]
+        }
+        return text, kbd
+
+    elif step == 3:
+        # Step 3: Toggle Build Options
+        text = (
+            f"🔨 <b>Cấu hình Build ROM — Bước 3/4: Tùy chỉnh Options</b>\n"
+            f"📦 <b>ROM URL:</b> <code>{url}</code>\n"
+            f"🌿 <b>Branch:</b> <code>{data['branch']}</code> | 🧩 <b>Mode:</b> <code>{data['mode']}</code>\n\n"
+            f"Bấm vào từng nút bên dưới để bật/tắt (Toggle) tính năng:"
+        )
+        opts = data["options"]
+
+        def btn(label: str, key: str) -> dict[str, str]:
+            status = "✅" if opts.get(key, False) else "❌"
+            return {"text": f"{status} {label}", "callback_data": f"b_opt:{key}"}
+
+        kbd = {
+            "inline_keyboard": [
+                [btn("Toolbox", "OPTION_TOOLBOX"), btn("JamesDSP", "OPTION_JAMESDSP")],
+                [btn("Device Features", "OPTION_DEVICE_FEATURES"), btn("Wifi Bonding", "OPTION_WIFI_BONDING")],
+                [btn("Thermal", "OPTION_THERMAL"), btn("Init RC", "OPTION_INIT_RC")],
+                [btn("ZK Mods", "OPTION_ZK_MODS"), btn("Fast Charge", "OPTION_FAST_CHARGE")],
+                [btn("Remove AI", "OPTION_REMOVE_AI"), btn("Patch JARs", "OPTION_PATCH_JARS")],
+                [btn("Patch APKs", "OPTION_PATCH_APKS"), btn("SELinux Patch", "OPTION_SELINUX_PATCH")],
+                [btn("Show Log", "OPTION_SHOW_LOG")],
+                [{"text": "➡️ Tiếp tục (Upload)", "callback_data": "b_next_upload"}],
+                [
+                    {"text": "◀️ Quay lại", "callback_data": "b_back"},
+                    {"text": "❌ Hủy", "callback_data": "b_cancel"},
+                ],
+            ]
+        }
+        return text, kbd
+
+    elif step == 4:
+        # Step 4: Toggle Upload & Confirm Start
+        text = (
+            f"🔨 <b>Cấu hình Build ROM — Bước 4/4: Upload & Xác nhận</b>\n"
+            f"📦 <b>ROM URL:</b> <code>{url}</code>\n"
+            f"🌿 <b>Branch:</b> <code>{data['branch']}</code> | 🧩 <b>Mode:</b> <code>{data['mode']}</code>\n\n"
+            f"Chọn kênh Upload file sau khi build:"
+        )
+        ups = data["uploads"]
+
+        def up_btn(label: str, key: str) -> dict[str, str]:
+            status = "✅" if ups.get(key, False) else "❌"
+            return {"text": f"{status} {label}", "callback_data": f"b_up:{key}"}
+
+        kbd = {
+            "inline_keyboard": [
+                [up_btn("Gofile", "UPLOAD_GOFILE"), up_btn("Pixeldrain", "UPLOAD_PIXELDRAIN")],
+                [{"text": "🚀 BẮT ĐẦU BUILD ROM", "callback_data": "b_start_build"}],
+                [
+                    {"text": "◀️ Quay lại", "callback_data": "b_back"},
+                    {"text": "❌ Hủy", "callback_data": "b_cancel"},
+                ],
+            ]
+        }
+        return text, kbd
+
+    return "Lỗi bước", {"inline_keyboard": []}
+
+
+def render_cp_step(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    data = session["data"]
+    parts = data["partitions"]
+
+    text = (
+        f"🔍 <b>Cấu hình So sánh ROM (Compare)</b>\n"
+        f"🔗 <b>ROM 1:</b> <code>{data['url1']}</code>\n"
+        f"🔗 <b>ROM 2:</b> <code>{data['url2']}</code>\n\n"
+        f"Chọn các phân vùng cần so sánh:"
+    )
+
+    def p_btn(p_name: str) -> dict[str, str]:
+        status = "✅" if parts.get(p_name, False) else "❌"
+        return {"text": f"{status} {p_name}", "callback_data": f"c_part:{p_name}"}
+
+    kbd = {
+        "inline_keyboard": [
+            [p_btn("system"), p_btn("vendor")],
+            [p_btn("product"), p_btn("system_ext")],
+            [p_btn("odm"), p_btn("mi_ext")],
+            [{"text": "🚀 BẮT ĐẦU SO SÁNH", "callback_data": "c_start_compare"}],
+            [
+                {"text": "◀️ Quay lại", "callback_data": "c_back"},
+                {"text": "❌ Hủy", "callback_data": "c_cancel"},
+            ],
+        ]
+    }
+    return text, kbd
+
+
+def push_history(session: dict[str, Any]) -> None:
+    session["history"].append(
+        {
+            "step": session["step"],
+            "data": copy.deepcopy(session["data"]),
+        }
+    )
+
+
+def pop_history(session: dict[str, Any]) -> bool:
+    if session["history"]:
+        prev = session["history"].pop()
+        session["step"] = prev["step"]
+        session["data"] = prev["data"]
         return True
-    return str(chat_id) == ALLOWED_CHAT
+    return False
 
 
-def handle_message(message: dict[str, Any]) -> None:
+# ==============================================================================
+# CALLBACK QUERY HANDLER
+# ==============================================================================
+
+def handle_callback_query(callback: dict[str, Any]) -> None:
+    callback_id = callback.get("id", "")
+    message = callback.get("message", {})
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
+    message_id = message.get("message_id")
+    data_str = callback.get("data", "")
+
+    if not chat_id or not is_allowed_chat(chat_id):
+        answer_callback(callback_id)
+        return
+
+    session_key = f"{chat_id}_{message_id}"
+    session = SESSIONS.get(session_key)
+
+    if not session:
+        answer_callback(callback_id, "⚠️ Phiên làm việc đã hết hạn hoặc bị hủy.")
+        edit_message(chat_id, message_id, "❌ <b>Phiên làm việc đã hết hạn. Vui lòng gửi lại lệnh mới.</b>")
+        return
+
+    stype = session["type"]
+
+    # ---------------- BUILD WORKFLOW CALLBACKS ----------------
+    if stype == "build":
+        if data_str == "b_cancel":
+            answer_callback(callback_id, "Đã hủy")
+            SESSIONS.pop(session_key, None)
+            edit_message(chat_id, message_id, "❌ <b>Đã hủy lệnh Build ROM.</b>")
+            return
+
+        elif data_str == "b_back":
+            answer_callback(callback_id, "Quay lại")
+            if not pop_history(session):
+                SESSIONS.pop(session_key, None)
+                edit_message(chat_id, message_id, "❌ <b>Đã hủy lệnh Build ROM.</b>")
+                return
+            text, kbd = render_build_step(session)
+            edit_message(chat_id, message_id, text, kbd)
+            return
+
+        elif data_str.startswith("b_br:"):
+            branch = data_str.split(":", 1)[1]
+            push_history(session)
+            session["data"]["branch"] = branch
+            session["step"] = 2
+            answer_callback(callback_id, f"Branch: {branch}")
+            text, kbd = render_build_step(session)
+            edit_message(chat_id, message_id, text, kbd)
+            return
+
+        elif data_str.startswith("b_mode:"):
+            mode = data_str.split(":", 1)[1]
+            push_history(session)
+            session["data"]["mode"] = mode
+            session["step"] = 3
+            answer_callback(callback_id, f"Mode: {mode}")
+            text, kbd = render_build_step(session)
+            edit_message(chat_id, message_id, text, kbd)
+            return
+
+        elif data_str.startswith("b_opt:"):
+            opt_key = data_str.split(":", 1)[1]
+            cur = session["data"]["options"].get(opt_key, False)
+            session["data"]["options"][opt_key] = not cur
+            answer_callback(callback_id, f"{opt_key}: {'ON' if not cur else 'OFF'}")
+            text, kbd = render_build_step(session)
+            edit_message(chat_id, message_id, text, kbd)
+            return
+
+        elif data_str == "b_next_upload":
+            push_history(session)
+            session["step"] = 4
+            answer_callback(callback_id)
+            text, kbd = render_build_step(session)
+            edit_message(chat_id, message_id, text, kbd)
+            return
+
+        elif data_str.startswith("b_up:"):
+            up_key = data_str.split(":", 1)[1]
+            cur = session["data"]["uploads"].get(up_key, False)
+            session["data"]["uploads"][up_key] = not cur
+            answer_callback(callback_id, f"{up_key}: {'ON' if not cur else 'OFF'}")
+            text, kbd = render_build_step(session)
+            edit_message(chat_id, message_id, text, kbd)
+            return
+
+        elif data_str == "b_start_build":
+            answer_callback(callback_id, "Đang khởi chạy workflow...")
+            bdata = session["data"]
+            inputs = {
+                "URL": bdata["url"],
+                "BRANCH": bdata["branch"],
+                "MODE": bdata["mode"],
+                "UPLOAD_GOFILE": "true" if bdata["uploads"]["UPLOAD_GOFILE"] else "false",
+                "UPLOAD_PIXELDRAIN": "true" if bdata["uploads"]["UPLOAD_PIXELDRAIN"] else "false",
+            }
+            for k, v in bdata["options"].items():
+                inputs[k] = "true" if v else "false"
+
+            try:
+                wf_url = dispatch_github_workflow("ZK BUILDER FORK.yml", inputs)
+                SESSIONS.pop(session_key, None)
+
+                summary_text = (
+                    f"✅ <b>ĐÃ KÍCH HOẠT WORKFLOW BUILD ROM!</b>\n\n"
+                    f"📦 <b>URL:</b> <code>{bdata['url']}</code>\n"
+                    f"🌿 <b>Branch:</b> <code>{bdata['branch']}</code>\n"
+                    f"🧩 <b>Mode:</b> <code>{bdata['mode']}</code>\n"
+                    f"📤 <b>Upload:</b> Gofile: <code>{inputs['UPLOAD_GOFILE']}</code> | Pixeldrain: <code>{inputs['UPLOAD_PIXELDRAIN']}</code>\n\n"
+                    f"🔍 Theo dõi tiến trình build chi tiết trên GitHub Actions."
+                )
+                kbd = {
+                    "inline_keyboard": [
+                        [{"text": "🔍 Xem Workflow trên GitHub", "url": wf_url}]
+                    ]
+                }
+                edit_message(chat_id, message_id, summary_text, kbd)
+            except Exception as exc:
+                edit_message(chat_id, message_id, f"❌ <b>Lỗi kích hoạt workflow:</b> <code>{exc}</code>")
+            return
+
+    # ---------------- COMPARE WORKFLOW CALLBACKS ----------------
+    elif stype == "cp":
+        if data_str == "c_cancel" or data_str == "c_back":
+            answer_callback(callback_id, "Đã hủy")
+            SESSIONS.pop(session_key, None)
+            edit_message(chat_id, message_id, "❌ <b>Đã hủy lệnh So sánh ROM.</b>")
+            return
+
+        elif data_str.startswith("c_part:"):
+            p_name = data_str.split(":", 1)[1]
+            cur = session["data"]["partitions"].get(p_name, False)
+            session["data"]["partitions"][p_name] = not cur
+            answer_callback(callback_id, f"Phân vùng {p_name}: {'BẬT' if not cur else 'TẮT'}")
+            text, kbd = render_cp_step(session)
+            edit_message(chat_id, message_id, text, kbd)
+            return
+
+        elif data_str == "c_start_compare":
+            cdata = session["data"]
+            selected_parts = [p for p, v in cdata["partitions"].items() if v]
+            if not selected_parts:
+                answer_callback(callback_id, "⚠️ Phải chọn ít nhất 1 phân vùng!", text="")
+                return
+
+            answer_callback(callback_id, "Đang khởi chạy so sánh...")
+            inputs = {
+                "rom_url_1": cdata["url1"],
+                "rom_url_2": cdata["url2"],
+                "partitions": ",".join(selected_parts),
+            }
+
+            try:
+                wf_url = dispatch_github_workflow("kang.yml", inputs)
+                SESSIONS.pop(session_key, None)
+
+                summary_text = (
+                    f"✅ <b>ĐÃ KÍCH HOẠT WORKFLOW SO SÁNH ROM!</b>\n\n"
+                    f"🔗 <b>ROM 1:</b> <code>{cdata['url1']}</code>\n"
+                    f"🔗 <b>ROM 2:</b> <code>{cdata['url2']}</code>\n"
+                    f"📁 <b>Phân vùng:</b> <code>{','.join(selected_parts)}</code>\n\n"
+                    f"🔍 Theo dõi tiến trình so sánh chi tiết trên GitHub Actions."
+                )
+                kbd = {
+                    "inline_keyboard": [
+                        [{"text": "🔍 Xem Workflow trên GitHub", "url": wf_url}]
+                    ]
+                }
+                edit_message(chat_id, message_id, summary_text, kbd)
+            except Exception as exc:
+                edit_message(chat_id, message_id, f"❌ <b>Lỗi kích hoạt workflow:</b> <code>{exc}</code>")
+            return
+
+
+# ==============================================================================
+# MESSAGE HANDLER
+# ==============================================================================
+
+def handle_text_message(message: dict[str, Any]) -> None:
     chat = message.get("chat", {})
     chat_id = chat.get("id")
     text = (message.get("text") or "").strip()
-    if not chat_id or not text:
+    msg_id = message.get("message_id")
+
+    if not chat_id or not text or not is_allowed_chat(chat_id):
         return
 
-    if not is_allowed(chat_id):
-        send_message(chat_id, "⛔ Chat này không được phép dùng bot.")
-        return
+    # Check if there is an active session running in this chat
+    active_keys = [k for k in SESSIONS if k.startswith(f"{chat_id}_")]
 
-    command = text.split()[0].split("@", 1)[0].lower()
-    if command in {"/start", "/help"}:
-        send_message(chat_id, HELP_TEXT)
-        return
+    urls = parse_urls_from_text(text)
+    lower_text = text.lower()
 
-    if command == "/build":
-        try:
-            inputs = parse_build_command(text)
-            workflow_url = dispatch_workflow(inputs)
+    is_build_cmd = lower_text.startswith("build") or lower_text.startswith("/build")
+    is_cp_cmd = lower_text.startswith("cp") or lower_text.startswith("/cp")
+
+    # 1. Process "build" command
+    if is_build_cmd:
+        if not urls:
             send_message(
                 chat_id,
-                "✅ <b>Đã gửi lệnh build</b>\n"
-                f"📦 <b>OTA:</b> <code>{inputs['URL']}</code>\n"
-                f"🌿 <b>Branch:</b> <code>{inputs['BRANCH']}</code>\n"
-                f"📤 <b>Gofile:</b> <code>{inputs['UPLOAD_GOFILE']}</code>\n"
-                f"📤 <b>Pixeldrain:</b> <code>{inputs['UPLOAD_PIXELDRAIN']}</code>",
-                {"inline_keyboard": [[{"text": "🔍 Xem workflow", "url": workflow_url}]]},
+                "❌ <b>Thiếu link ROM.</b>\n\n"
+                "💡 <b>Cú pháp đúng:</b>\n"
+                "<code>build + [link]</code>",
+                reply_to_message_id=msg_id,
             )
-        except Exception as exc:  # noqa: BLE001
-            send_message(chat_id, f"❌ <b>Lỗi:</b> <code>{str(exc)}</code>")
+            return
+
+        bdata = default_build_data(urls[0], urls[1] if len(urls) > 1 else "")
+        temp_session = {
+            "chat_id": chat_id,
+            "type": "build",
+            "step": 1,
+            "history": [],
+            "data": bdata,
+        }
+        init_text, init_kbd = render_build_step(temp_session)
+        sent = send_message(chat_id, init_text, init_kbd, reply_to_message_id=msg_id)
+
+        sent_msg_id = sent.get("result", {}).get("message_id")
+        if sent_msg_id:
+            session_key = f"{chat_id}_{sent_msg_id}"
+            temp_session["message_id"] = sent_msg_id
+            SESSIONS[session_key] = temp_session
         return
 
-    send_message(chat_id, "Không hiểu lệnh. Gõ /help để xem hướng dẫn.")
+    # 2. Process "cp" command
+    if is_cp_cmd:
+        if len(urls) < 2:
+            send_message(
+                chat_id,
+                "❌ <b>Cần đủ 2 link ROM để so sánh.</b>\n\n"
+                "💡 <b>Cú pháp đúng:</b>\n"
+                "<code>cp + [link1] + [link2]</code>",
+                reply_to_message_id=msg_id,
+            )
+            return
 
+        cdata = default_cp_data(urls[0], urls[1])
+        temp_session = {
+            "chat_id": chat_id,
+            "type": "cp",
+            "step": 1,
+            "history": [],
+            "data": cdata,
+        }
+        init_text, init_kbd = render_cp_step(temp_session)
+        sent = send_message(chat_id, init_text, init_kbd, reply_to_message_id=msg_id)
+
+        sent_msg_id = sent.get("result", {}).get("message_id")
+        if sent_msg_id:
+            session_key = f"{chat_id}_{sent_msg_id}"
+            temp_session["message_id"] = sent_msg_id
+            SESSIONS[session_key] = temp_session
+        return
+
+    # 3. Unrecognized text message
+    if active_keys:
+        send_message(
+            chat_id,
+            "⚠️ <b>Đang có menu thiết lập dở dang.</b>\n"
+            "Vui lòng thao tác bằng các nút bấm bên dưới hoặc bấm nút <b>[❌ Hủy]</b> để hủy lệnh trước khi thực hiện lệnh mới.",
+            reply_to_message_id=msg_id,
+        )
+    else:
+        send_message(
+            chat_id,
+            "🤖 <b>ZK Builder Bot</b>\n\n"
+            "Bot chỉ xử lý các lệnh sau trong group này:\n"
+            "• <code>build + [link]</code> — Trigger workflow Build ROM\n"
+            "• <code>cp + [link1] + [link2]</code> — Trigger workflow So sánh ROM",
+            reply_to_message_id=msg_id,
+        )
+
+
+# ==============================================================================
+# MAIN LOOP
+# ==============================================================================
 
 def main() -> int:
-    missing = []
     if not TELEGRAM_TOKEN:
-        missing.append("TELEGRAM_TOKEN")
-    if not REPOSITORY:
-        missing.append("GH_REPOSITORY/GITHUB_REPOSITORY")
-    if missing:
-        print("Missing env: " + ", ".join(missing), file=sys.stderr)
+        print("Error: TELEGRAM_TOKEN is required", file=sys.stderr)
         return 1
 
     tg_api("deleteWebhook", {"drop_pending_updates": False})
-    print(f"Telegram bot started. Repository={REPOSITORY}, workflow={WORKFLOW_FILE}, ref={WORKFLOW_REF}")
+    print(
+        f"Bot started successfully.\n"
+        f"Target Group ID: {TARGET_GROUP_ID}\n"
+        f"Repository: {REPOSITORY}"
+    )
 
     offset = 0
     while True:
@@ -226,10 +672,15 @@ def main() -> int:
             updates = tg_api("getUpdates", {"timeout": 50, "offset": offset + 1}).get("result", [])
             for update in updates:
                 offset = max(offset, int(update.get("update_id", 0)))
+                callback_query = update.get("callback_query")
+                if callback_query:
+                    handle_callback_query(callback_query)
+                    continue
+
                 message = update.get("message") or update.get("edited_message")
                 if message:
-                    handle_message(message)
-        except Exception as exc:  # noqa: BLE001
+                    handle_text_message(message)
+        except Exception as exc:
             print(f"Polling error: {exc}", file=sys.stderr)
             time.sleep(5)
 
