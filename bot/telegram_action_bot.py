@@ -162,11 +162,33 @@ def edit_message(
         print(f"Edit message error: {exc}", file=sys.stderr)
 
 
-def answer_callback(callback_id: str, text: str = "") -> None:
+def answer_callback(callback_id: str, text: str = "", show_alert: bool = False) -> None:
+    payload: dict[str, Any] = {"callback_query_id": callback_id}
+    if text:
+        payload["text"] = text
+    if show_alert:
+        payload["show_alert"] = True
     try:
-        tg_api("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
+        tg_api("answerCallbackQuery", payload)
     except Exception:
         pass
+
+
+ADMIN_IDS = {"5523842976"}
+extra_admins = os.getenv("ADMIN_IDS", "").strip()
+if extra_admins:
+    for aid in re.split(r"[,\s]+", extra_admins):
+        if aid:
+            ADMIN_IDS.add(aid)
+
+
+def is_authorized_user(click_user_id: int | str, requester_user_id: int | str | None) -> bool:
+    click_str = str(click_user_id)
+    if click_str in ADMIN_IDS:
+        return True
+    if requester_user_id and click_str == str(requester_user_id):
+        return True
+    return False
 
 
 def dispatch_github_workflow(workflow_file: str, inputs: dict[str, str]) -> str:
@@ -445,9 +467,22 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
         answer_callback(callback_id)
         return
 
+    click_user_id = callback.get("from", {}).get("id")
+
     # Direct workflow cancel callback from final message
     if data_str.startswith("cancel_wf:"):
-        workflow_file = data_str.split(":", 1)[1]
+        parts = data_str.split(":", 2)
+        workflow_file = parts[1]
+        req_uid = parts[2] if len(parts) > 2 else None
+
+        if not is_authorized_user(click_user_id, req_uid):
+            answer_callback(
+                callback_id,
+                "⚠️ Bạn không có quyền hủy workflow này!\n(Chỉ người tạo lệnh hoặc Admin 5523842976 mới được thao tác)",
+                show_alert=True,
+            )
+            return
+
         answer_callback(callback_id, "Đang gửi lệnh hủy workflow tới GitHub...")
         try:
             cancelled_ids = cancel_github_workflow_runs(workflow_file)
@@ -472,6 +507,15 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
     if not session:
         answer_callback(callback_id, "⚠️ Phiên làm việc đã hết hạn hoặc bị hủy.")
         edit_message(chat_id, message_id, "❌ <b>Phiên làm việc đã hết hạn. Vui lòng gửi lại lệnh mới.</b>")
+        return
+
+    req_uid = session.get("user_id")
+    if not is_authorized_user(click_user_id, req_uid):
+        answer_callback(
+            callback_id,
+            "⚠️ Bạn không có quyền thao tác trên menu này!\n(Chỉ người tạo lệnh hoặc Admin 5523842976 mới được thao tác)",
+            show_alert=True,
+        )
         return
 
     stype = session["type"]
@@ -571,10 +615,11 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
                     f"📤 <b>Upload:</b> Gofile: <code>{inputs['UPLOAD_GOFILE']}</code> | Pixeldrain: <code>{inputs['UPLOAD_PIXELDRAIN']}</code>\n\n"
                     f"🔍 Theo dõi tiến trình build chi tiết trên GitHub Actions."
                 )
+                req_user_id = session.get("user_id", "")
                 kbd = {
                     "inline_keyboard": [
                         [{"text": "🔍 Xem Workflow trên GitHub", "url": wf_url}],
-                        [{"text": "🛑 HỦY WORKFLOW GITHUB", "callback_data": "cancel_wf:ZK BUILDER FORK.yml"}]
+                        [{"text": "🛑 HỦY WORKFLOW GITHUB", "callback_data": f"cancel_wf:ZK BUILDER FORK.yml:{req_user_id}"}]
                     ]
                 }
                 edit_message(chat_id, message_id, summary_text, kbd)
@@ -626,10 +671,11 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
                     f"📁 <b>Phân vùng:</b> <code>{','.join(selected_parts)}</code>\n\n"
                     f"🔍 Theo dõi tiến trình so sánh chi tiết trên GitHub Actions."
                 )
+                req_user_id = session.get("user_id", "")
                 kbd = {
                     "inline_keyboard": [
                         [{"text": "🔍 Xem Workflow trên GitHub", "url": wf_url}],
-                        [{"text": "🛑 HỦY WORKFLOW GITHUB", "callback_data": "cancel_wf:kang.yml"}]
+                        [{"text": "🛑 HỦY WORKFLOW GITHUB", "callback_data": f"cancel_wf:kang.yml:{req_user_id}"}]
                     ]
                 }
                 edit_message(chat_id, message_id, summary_text, kbd)
