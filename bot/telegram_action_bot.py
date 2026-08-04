@@ -40,8 +40,26 @@ GITHUB_TOKEN = (
 )
 REPOSITORY = os.getenv("GH_REPOSITORY", os.getenv("GITHUB_REPOSITORY", "")).strip()
 
-# Active interactive wizard sessions in memory: key = f"{chat_id}_{message_id}"
-SESSIONS: dict[str, dict[str, Any]] = {}
+# Active interactive wizard sessions in memory & JSON file: key = f"{chat_id}_{message_id}"
+SESSIONS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bot_sessions.json")
+
+def load_sessions() -> dict[str, dict[str, Any]]:
+    if os.path.exists(SESSIONS_FILE):
+        try:
+            with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_sessions() -> None:
+    try:
+        with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(SESSIONS, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+SESSIONS: dict[str, dict[str, Any]] = load_sessions()
 
 URL_RE = re.compile(r"https?://[^\s+]+", re.IGNORECASE)
 
@@ -409,6 +427,7 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
         if data_str == "b_cancel":
             answer_callback(callback_id, "Đã hủy")
             SESSIONS.pop(session_key, None)
+            save_sessions()
             edit_message(chat_id, message_id, "❌ <b>Đã hủy lệnh Build ROM.</b>")
             return
 
@@ -416,8 +435,10 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
             answer_callback(callback_id, "Quay lại")
             if not pop_history(session):
                 SESSIONS.pop(session_key, None)
+                save_sessions()
                 edit_message(chat_id, message_id, "❌ <b>Đã hủy lệnh Build ROM.</b>")
                 return
+            save_sessions()
             text, kbd = render_build_step(session)
             edit_message(chat_id, message_id, text, kbd)
             return
@@ -464,6 +485,7 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
             cur = session["data"]["uploads"].get(up_key, False)
             session["data"]["uploads"][up_key] = not cur
             answer_callback(callback_id, f"{up_key}: {'ON' if not cur else 'OFF'}")
+            save_sessions()
             text, kbd = render_build_step(session)
             edit_message(chat_id, message_id, text, kbd)
             return
@@ -485,6 +507,7 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
             try:
                 wf_url = dispatch_github_workflow("ZK BUILDER FORK.yml", inputs)
                 SESSIONS.pop(session_key, None)
+                save_sessions()
 
                 summary_text = (
                     f"✅ <b>ĐÃ KÍCH HOẠT WORKFLOW BUILD ROM!</b>\n\n"
@@ -509,6 +532,7 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
         if data_str == "c_cancel" or data_str == "c_back":
             answer_callback(callback_id, "Đã hủy")
             SESSIONS.pop(session_key, None)
+            save_sessions()
             edit_message(chat_id, message_id, "❌ <b>Đã hủy lệnh So sánh ROM.</b>")
             return
 
@@ -538,6 +562,7 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
             try:
                 wf_url = dispatch_github_workflow("kang.yml", inputs)
                 SESSIONS.pop(session_key, None)
+                save_sessions()
 
                 summary_text = (
                     f"✅ <b>ĐÃ KÍCH HOẠT WORKFLOW SO SÁNH ROM!</b>\n\n"
@@ -607,6 +632,7 @@ def handle_text_message(message: dict[str, Any]) -> None:
             session_key = f"{chat_id}_{sent_msg_id}"
             temp_session["message_id"] = sent_msg_id
             SESSIONS[session_key] = temp_session
+            save_sessions()
         return
 
     # 2. Process "cp" command
@@ -637,6 +663,7 @@ def handle_text_message(message: dict[str, Any]) -> None:
             session_key = f"{chat_id}_{sent_msg_id}"
             temp_session["message_id"] = sent_msg_id
             SESSIONS[session_key] = temp_session
+            save_sessions()
         return
 
     # 3. Non-command messages: ignore completely (do not spam group)
