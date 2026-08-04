@@ -510,19 +510,18 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
         return
 
     req_uid = session.get("user_id")
-    if not is_authorized_user(click_user_id, req_uid):
-        answer_callback(
-            callback_id,
-            "⚠️ Bạn không có quyền thao tác trên menu này!\n(Chỉ người tạo lệnh hoặc Admin 5523842976 mới được thao tác)",
-            show_alert=True,
-        )
-        return
-
     stype = session["type"]
 
     # ---------------- BUILD WORKFLOW CALLBACKS ----------------
     if stype == "build":
         if data_str == "b_cancel":
+            if not is_authorized_user(click_user_id, req_uid):
+                answer_callback(
+                    callback_id,
+                    "⚠️ Bạn không có quyền hủy lệnh này!\n(Chỉ người tạo lệnh hoặc Admin 5523842976 mới được hủy)",
+                    show_alert=True,
+                )
+                return
             answer_callback(callback_id, "Đã hủy")
             SESSIONS.pop(session_key, None)
             save_sessions()
@@ -530,12 +529,22 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
             return
 
         elif data_str == "b_back":
-            answer_callback(callback_id, "Quay lại")
-            if not pop_history(session):
+            if not session["history"]:
+                if not is_authorized_user(click_user_id, req_uid):
+                    answer_callback(
+                        callback_id,
+                        "⚠️ Bạn không có quyền hủy lệnh này!\n(Chỉ người tạo lệnh hoặc Admin 5523842976 mới được hủy)",
+                        show_alert=True,
+                    )
+                    return
+                answer_callback(callback_id, "Đã hủy")
                 SESSIONS.pop(session_key, None)
                 save_sessions()
                 edit_message(chat_id, message_id, "❌ <b>Đã hủy lệnh Build ROM.</b>")
                 return
+
+            answer_callback(callback_id, "Quay lại")
+            pop_history(session)
             save_sessions()
             text, kbd = render_build_step(session)
             edit_message(chat_id, message_id, text, kbd)
@@ -630,6 +639,13 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
     # ---------------- COMPARE WORKFLOW CALLBACKS ----------------
     elif stype == "cp":
         if data_str == "c_cancel" or data_str == "c_back":
+            if not is_authorized_user(click_user_id, req_uid):
+                answer_callback(
+                    callback_id,
+                    "⚠️ Bạn không có quyền hủy lệnh này!\n(Chỉ người tạo lệnh hoặc Admin 5523842976 mới được hủy)",
+                    show_alert=True,
+                )
+                return
             answer_callback(callback_id, "Đã hủy")
             SESSIONS.pop(session_key, None)
             save_sessions()
