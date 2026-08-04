@@ -188,6 +188,39 @@ def dispatch_github_workflow(workflow_file: str, inputs: dict[str, str]) -> str:
     return f"https://github.com/{REPOSITORY}/actions/workflows/{encoded_workflow}"
 
 
+def cancel_github_workflow_runs(workflow_file: str) -> list[int]:
+    if not REPOSITORY or not GITHUB_TOKEN:
+        raise RuntimeError("Thiếu REPOSITORY hoặc GITHUB_TOKEN")
+
+    encoded_workflow = urllib.parse.quote(workflow_file, safe="")
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "zk-builder-telegram-bot",
+    }
+
+    cancelled_ids = []
+    for status in ["in_progress", "queued", "requested", "waiting"]:
+        url = f"https://api.github.com/repos/{REPOSITORY}/actions/workflows/{encoded_workflow}/runs?status={status}&per_page=10"
+        try:
+            res = request_json(url, method="GET", headers=headers)
+            runs = res.get("workflow_runs", [])
+            for run in runs:
+                run_id = run.get("id")
+                if run_id and run_id not in cancelled_ids:
+                    cancel_url = f"https://api.github.com/repos/{REPOSITORY}/actions/runs/{run_id}/cancel"
+                    try:
+                        request_json(cancel_url, method="POST", headers=headers)
+                        cancelled_ids.append(run_id)
+                    except Exception as e:
+                        print(f"Failed to cancel run {run_id}: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"Failed to list runs for status {status}: {e}", file=sys.stderr)
+
+    return cancelled_ids
+
+
 def parse_urls_from_text(text: str) -> list[str]:
     return URL_RE.findall(text)
 
@@ -412,6 +445,27 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
         answer_callback(callback_id)
         return
 
+    # Direct workflow cancel callback from final message
+    if data_str.startswith("cancel_wf:"):
+        workflow_file = data_str.split(":", 1)[1]
+        answer_callback(callback_id, "Đang gửi lệnh hủy workflow tới GitHub...")
+        try:
+            cancelled_ids = cancel_github_workflow_runs(workflow_file)
+            if cancelled_ids:
+                ids_str = ", ".join(f"<code>{cid}</code>" for cid in cancelled_ids)
+                edit_message(
+                    chat_id,
+                    message_id,
+                    f"🛑 <b>ĐÃ HỦY WORKFLOW TRÊN GITHUB ACTIONS!</b>\n\n"
+                    f"📦 <b>Workflow:</b> <code>{workflow_file}</code>\n"
+                    f"📌 <b>Cancelled Run ID:</b> {ids_str}"
+                )
+            else:
+                answer_callback(callback_id, "⚠️ Không tìm thấy Workflow nào đang chạy để hủy.")
+        except Exception as exc:
+            answer_callback(callback_id, f"❌ Lỗi hủy workflow: {exc}")
+        return
+
     session_key = f"{chat_id}_{message_id}"
     session = SESSIONS.get(session_key)
 
@@ -519,7 +573,8 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
                 )
                 kbd = {
                     "inline_keyboard": [
-                        [{"text": "🔍 Xem Workflow trên GitHub", "url": wf_url}]
+                        [{"text": "🔍 Xem Workflow trên GitHub", "url": wf_url}],
+                        [{"text": "🛑 HỦY WORKFLOW GITHUB", "callback_data": "cancel_wf:ZK BUILDER FORK.yml"}]
                     ]
                 }
                 edit_message(chat_id, message_id, summary_text, kbd)
@@ -573,7 +628,8 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
                 )
                 kbd = {
                     "inline_keyboard": [
-                        [{"text": "🔍 Xem Workflow trên GitHub", "url": wf_url}]
+                        [{"text": "🔍 Xem Workflow trên GitHub", "url": wf_url}],
+                        [{"text": "🛑 HỦY WORKFLOW GITHUB", "callback_data": "cancel_wf:kang.yml"}]
                     ]
                 }
                 edit_message(chat_id, message_id, summary_text, kbd)
