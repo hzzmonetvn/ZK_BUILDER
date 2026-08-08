@@ -299,33 +299,10 @@ def render_build_step(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     url = data["url"]
 
     if step == 1:
-        # Step 1: Select Branch
+        # Step 1: Select Mode
         text = (
-            f"🔨 <b>Cấu hình Build ROM — Bước 1/4: Chọn Branch</b>\n"
+            f"🔨 <b>Cấu hình Build ROM — Bước 1/3: Chọn Mode</b>\n"
             f"📦 <b>ROM URL:</b> <code>{url}</code>\n\n"
-            f"Vui lòng chọn Branch ZK_AUTO_BUILD:"
-        )
-        kbd = {
-            "inline_keyboard": [
-                [
-                    {"text": f"{'▶ ' if data['branch']=='hzz' else ''}🌿 hzz (Mặc định)", "callback_data": "b_br:hzz"},
-                    {"text": f"{'▶ ' if data['branch']=='main' else ''}🌿 main", "callback_data": "b_br:main"},
-                    {"text": f"{'▶ ' if data['branch']=='stock' else ''}🌿 stock", "callback_data": "b_br:stock"},
-                ],
-                [
-                    {"text": "◀️ Quay lại", "callback_data": "b_back"},
-                    {"text": "❌ Hủy", "callback_data": "b_cancel"},
-                ],
-            ]
-        }
-        return text, kbd
-
-    elif step == 2:
-        # Step 2: Select Mode
-        text = (
-            f"🔨 <b>Cấu hình Build ROM — Bước 2/4: Chọn Mode</b>\n"
-            f"📦 <b>ROM URL:</b> <code>{url}</code>\n"
-            f"🌿 <b>Branch:</b> <code>{data['branch']}</code>\n\n"
             f"Vui lòng chọn Build Mode:"
         )
         kbd = {
@@ -343,12 +320,12 @@ def render_build_step(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         }
         return text, kbd
 
-    elif step == 3:
-        # Step 3: Toggle Build Options
+    elif step == 2:
+        # Step 2: Toggle Build Options
         text = (
-            f"🔨 <b>Cấu hình Build ROM — Bước 3/4: Tùy chỉnh Options</b>\n"
+            f"🔨 <b>Cấu hình Build ROM — Bước 2/3: Tùy chỉnh Options</b>\n"
             f"📦 <b>ROM URL:</b> <code>{url}</code>\n"
-            f"🌿 <b>Branch:</b> <code>{data['branch']}</code> | 🧩 <b>Mode:</b> <code>{data['mode']}</code>\n\n"
+            f"🧩 <b>Mode:</b> <code>{data['mode']}</code>\n\n"
             f"Bấm vào từng nút bên dưới để bật/tắt (Toggle) tính năng:"
         )
         opts = data["options"]
@@ -374,12 +351,12 @@ def render_build_step(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         }
         return text, kbd
 
-    elif step == 4:
-        # Step 4: Toggle Upload & Confirm Start
+    elif step == 3:
+        # Step 3: Toggle Upload & Confirm Start
         text = (
-            f"🔨 <b>Cấu hình Build ROM — Bước 4/4: Upload & Xác nhận</b>\n"
+            f"🔨 <b>Cấu hình Build ROM — Bước 3/3: Upload & Xác nhận</b>\n"
             f"📦 <b>ROM URL:</b> <code>{url}</code>\n"
-            f"🌿 <b>Branch:</b> <code>{data['branch']}</code> | 🧩 <b>Mode:</b> <code>{data['mode']}</code>\n\n"
+            f"🧩 <b>Mode:</b> <code>{data['mode']}</code>\n\n"
             f"Chọn kênh Upload file sau khi build:"
         )
         ups = data["uploads"]
@@ -550,21 +527,11 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
             edit_message(chat_id, message_id, text, kbd)
             return
 
-        elif data_str.startswith("b_br:"):
-            branch = data_str.split(":", 1)[1]
-            push_history(session)
-            session["data"]["branch"] = branch
-            session["step"] = 2
-            answer_callback(callback_id, f"Branch: {branch}")
-            text, kbd = render_build_step(session)
-            edit_message(chat_id, message_id, text, kbd)
-            return
-
         elif data_str.startswith("b_mode:"):
             mode = data_str.split(":", 1)[1]
             push_history(session)
             session["data"]["mode"] = mode
-            session["step"] = 3
+            session["step"] = 2
             answer_callback(callback_id, f"Mode: {mode}")
             text, kbd = render_build_step(session)
             edit_message(chat_id, message_id, text, kbd)
@@ -581,7 +548,7 @@ def handle_callback_query(callback: dict[str, Any]) -> None:
 
         elif data_str == "b_next_upload":
             push_history(session)
-            session["step"] = 4
+            session["step"] = 3
             answer_callback(callback_id)
             text, kbd = render_build_step(session)
             edit_message(chat_id, message_id, text, kbd)
