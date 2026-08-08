@@ -301,7 +301,7 @@ def render_build_step(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     if step == 1:
         # Step 1: Select Mode
         text = (
-            f"🔨 <b>Cấu hình Build ROM — Bước 1/3: Chọn Mode</b>\n"
+            f"🔨 <b>Cấu hình Build ROM — Bước 1/2: Chọn Mode</b>\n"
             f"📦 <b>ROM URL:</b> <code>{url}</code>\n\n"
             f"Vui lòng chọn Build Mode:"
         )
@@ -321,40 +321,9 @@ def render_build_step(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         return text, kbd
 
     elif step == 2:
-        # Step 2: Toggle Build Options
+        # Step 2: Toggle Upload & Confirm Start
         text = (
-            f"🔨 <b>Cấu hình Build ROM — Bước 2/3: Tùy chỉnh Options</b>\n"
-            f"📦 <b>ROM URL:</b> <code>{url}</code>\n"
-            f"🧩 <b>Mode:</b> <code>{data['mode']}</code>\n\n"
-            f"Bấm vào từng nút bên dưới để bật/tắt (Toggle) tính năng:"
-        )
-        opts = data["options"]
-
-        def btn(label: str, key: str) -> dict[str, str]:
-            status = "✅" if opts.get(key, False) else "❌"
-            return {"text": f"{status} {label}", "callback_data": f"b_opt:{key}"}
-
-        kbd = {
-            "inline_keyboard": [
-                [btn("Toolbox", "OPTION_TOOLBOX"), btn("JamesDSP", "OPTION_JAMESDSP")],
-                [btn("Device Features", "OPTION_DEVICE_FEATURES"), btn("Wifi Bonding", "OPTION_WIFI_BONDING")],
-                [btn("Thermal", "OPTION_THERMAL"), btn("Init RC", "OPTION_INIT_RC")],
-                [btn("ZK Mods", "OPTION_ZK_MODS"), btn("Fast Charge", "OPTION_FAST_CHARGE")],
-                [btn("Remove AI", "OPTION_REMOVE_AI"), btn("Patch JARs", "OPTION_PATCH_JARS")],
-                [btn("Patch APKs", "OPTION_PATCH_APKS"), btn("SELinux Patch", "OPTION_SELINUX_PATCH")],
-                [{"text": "➡️ Tiếp tục (Upload)", "callback_data": "b_next_upload"}],
-                [
-                    {"text": "◀️ Quay lại", "callback_data": "b_back"},
-                    {"text": "❌ Hủy", "callback_data": "b_cancel"},
-                ],
-            ]
-        }
-        return text, kbd
-
-    elif step == 3:
-        # Step 3: Toggle Upload & Confirm Start
-        text = (
-            f"🔨 <b>Cấu hình Build ROM — Bước 3/3: Upload & Xác nhận</b>\n"
+            f"🔨 <b>Cấu hình Build ROM — Bước 2/2: Upload & Xác nhận</b>\n"
             f"📦 <b>ROM URL:</b> <code>{url}</code>\n"
             f"🧩 <b>Mode:</b> <code>{data['mode']}</code>\n\n"
             f"Chọn kênh Upload file sau khi build:"
