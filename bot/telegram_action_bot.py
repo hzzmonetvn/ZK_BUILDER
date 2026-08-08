@@ -252,7 +252,7 @@ def default_build_data(url: str, url2: str = "") -> dict[str, Any]:
         "url": url,
         "url2": url2,
         "branch": "hzz",
-        "mode": "auto",
+        "mode": "stock",
         "options": {
             "OPTION_TOOLBOX": True,
             "OPTION_JAMESDSP": True,
@@ -294,59 +294,29 @@ def default_cp_data(url1: str, url2: str) -> dict[str, Any]:
 # ==============================================================================
 
 def render_build_step(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    step = session["step"]
     data = session["data"]
     url = data["url"]
 
-    if step == 1:
-        # Step 1: Select Mode
-        text = (
-            f"🔨 <b>Cấu hình Build ROM — Bước 1/2: Chọn Mode</b>\n"
-            f"📦 <b>ROM URL:</b> <code>{url}</code>\n\n"
-            f"Vui lòng chọn Build Mode:"
-        )
-        kbd = {
-            "inline_keyboard": [
-                [
-                    {"text": f"{'▶ ' if data['mode']=='auto' else ''}🧩 auto", "callback_data": "b_mode:auto"},
-                    {"text": f"{'▶ ' if data['mode']=='stock' else ''}🧩 stock", "callback_data": "b_mode:stock"},
-                    {"text": f"{'▶ ' if data['mode']=='eu' else ''}🧩 eu", "callback_data": "b_mode:eu"},
-                ],
-                [
-                    {"text": "◀️ Quay lại", "callback_data": "b_back"},
-                    {"text": "❌ Hủy", "callback_data": "b_cancel"},
-                ],
-            ]
-        }
-        return text, kbd
+    text = (
+        f"🔨 <b>Cấu hình Build ROM</b>\n"
+        f"📦 <b>ROM URL:</b> <code>{url}</code>\n"
+        f"🌿 <b>Branch:</b> <code>{data['branch']}</code> | 🧩 <b>Mode:</b> <code>{data['mode']}</code>\n\n"
+        f"Chọn kênh Upload file sau khi build:"
+    )
+    ups = data["uploads"]
 
-    elif step == 2:
-        # Step 2: Toggle Upload & Confirm Start
-        text = (
-            f"🔨 <b>Cấu hình Build ROM — Bước 2/2: Upload & Xác nhận</b>\n"
-            f"📦 <b>ROM URL:</b> <code>{url}</code>\n"
-            f"🧩 <b>Mode:</b> <code>{data['mode']}</code>\n\n"
-            f"Chọn kênh Upload file sau khi build:"
-        )
-        ups = data["uploads"]
+    def up_btn(label: str, key: str) -> dict[str, str]:
+        status = "✅" if ups.get(key, False) else "❌"
+        return {"text": f"{status} {label}", "callback_data": f"b_up:{key}"}
 
-        def up_btn(label: str, key: str) -> dict[str, str]:
-            status = "✅" if ups.get(key, False) else "❌"
-            return {"text": f"{status} {label}", "callback_data": f"b_up:{key}"}
-
-        kbd = {
-            "inline_keyboard": [
-                [up_btn("Gofile", "UPLOAD_GOFILE"), up_btn("Pixeldrain", "UPLOAD_PIXELDRAIN")],
-                [{"text": "🚀 BẮT ĐẦU BUILD ROM", "callback_data": "b_start_build"}],
-                [
-                    {"text": "◀️ Quay lại", "callback_data": "b_back"},
-                    {"text": "❌ Hủy", "callback_data": "b_cancel"},
-                ],
-            ]
-        }
-        return text, kbd
-
-    return "Lỗi bước", {"inline_keyboard": []}
+    kbd = {
+        "inline_keyboard": [
+            [up_btn("Gofile", "UPLOAD_GOFILE"), up_btn("Pixeldrain", "UPLOAD_PIXELDRAIN")],
+            [{"text": "🚀 BẮT ĐẦU BUILD ROM", "callback_data": "b_start_build"}],
+            [{"text": "❌ Hủy", "callback_data": "b_cancel"}],
+        ]
+    }
+    return text, kbd
 
 
 def render_cp_step(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
