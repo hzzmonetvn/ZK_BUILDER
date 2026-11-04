@@ -54,16 +54,17 @@ def list_super_partitions(zip_path, tools_dir):
                     stream_extract(z, payload_entry, temp_file)
                 payload_tool = os.path.join(tools_dir, 'payload')
                 result = subprocess.run([payload_tool, '-l', temp_file], capture_output=True, text=True)
+                output = result.stdout + result.stderr
                 if result.returncode != 0:
-                    raise RuntimeError(result.stderr or result.stdout)
-                match = __import__('re').search(r'Found partitions:\s*([^\r\n]*)', result.stdout)
+                    raise RuntimeError(output)
+                match = __import__('re').search(r'Found partitions:\s*([^\r\n]*)', output)
                 if not match:
-                    raise RuntimeError(result.stdout or result.stderr)
-                names = match.group(1).split()
+                    raise RuntimeError(output or 'Payload tool did not list partitions.')
+                names = __import__('re').findall(r'[A-Za-z0-9_]+', match.group(1))
                 if not names:
-                    names = result.stdout[match.end():].split()
+                    names = __import__('re').findall(r'^\s+([A-Za-z0-9_]+)\s*$', output[match.end():], __import__('re').M)
                 if not names:
-                    raise RuntimeError(result.stdout or result.stderr)
+                    raise RuntimeError(output or 'Payload tool returned an empty partition list.')
                 return sorted({name.removesuffix('_a') for name in names})
             if super_entry:
                 temp_file = os.path.abspath(os.path.join(os.path.dirname(zip_path), f"{os.path.basename(zip_path)}.super-list.img"))
