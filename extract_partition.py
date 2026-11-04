@@ -67,7 +67,7 @@ def extract_partition(zip_path, partition_name, output_img_path, tools_dir):
         # Case 2: payload.bin is present in zip
         if payload_entry:
             print(f"Found payload.bin in zip: {payload_entry.filename}")
-            temp_payload = "temp_payload.bin"
+            temp_payload = f"{output_img_path}.payload.bin"
             stream_extract(z, payload_entry, temp_payload)
 
             print(f"Dumping {partition_name} from payload.bin using payload tool...")
@@ -75,7 +75,7 @@ def extract_partition(zip_path, partition_name, output_img_path, tools_dir):
             if not os.path.exists(payload_tool):
                 payload_tool = "payload"
                 
-            temp_out_dir = "temp_payload_out"
+            temp_out_dir = f"{output_img_path}.payload_out"
             os.makedirs(temp_out_dir, exist_ok=True)
 
             # Try dumping specific partition
@@ -115,7 +115,7 @@ def extract_partition(zip_path, partition_name, output_img_path, tools_dir):
         # Case 3: super.img or large .img (>= 8GB) present in zip
         if super_entry:
             print(f"Found super image in zip: {super_entry.filename} ({super_entry.file_size / (1024**3):.2f} GB)")
-            temp_super = "temp_super.img"
+            temp_super = f"{output_img_path}.super.img"
             stream_extract(z, super_entry, temp_super)
 
             # Use lpunpack.py from tools/py/
@@ -126,7 +126,7 @@ def extract_partition(zip_path, partition_name, output_img_path, tools_dir):
                     os.remove(temp_super)
                 sys.exit(1)
 
-            temp_out_dir = "temp_super_out"
+            temp_out_dir = f"{output_img_path}.super_out"
             os.makedirs(temp_out_dir, exist_ok=True)
 
             # Try extracting with partition name directly
