@@ -59,7 +59,9 @@ def list_super_partitions(zip_path, tools_dir):
                 return []
             temp_super = os.path.join(tools_dir, '..', f"{os.path.basename(zip_path)}.super-list.img")
             temp_super = os.path.abspath(temp_super)
-            stream_extract(z, super_entry, temp_super)
+            import contextlib
+            with contextlib.redirect_stdout(sys.stderr):
+                stream_extract(z, super_entry, temp_super)
         result = subprocess.run(
             ['python3', os.path.join(tools_dir, 'py', 'lpunpack.py'), '--info', '--format', 'json', temp_super],
             capture_output=True, text=True,
