@@ -44,7 +44,7 @@ jobs:
           aria2c -s 16 -x 16 -o rom1_temp/rom1.zip "$ROM_URL_1" &
           download1_pid=$!
           echo "Downloading ROM 2..."
-          aria2c -s 16 -x 16 -o rom2_temp/rom2.zip "$ROM_URL_2" &
+          aria2c -s 1 -x 1 -o rom2_temp/rom2.zip "$ROM_URL_2" &
           download2_pid=$!
           download1_status=0
           download2_status=0

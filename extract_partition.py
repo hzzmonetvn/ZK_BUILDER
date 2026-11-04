@@ -57,7 +57,7 @@ def list_super_partitions(zip_path, tools_dir):
             )
             if super_entry is None:
                 return []
-            temp_super = os.path.join(tools_dir, '..', f"{os.path.basename(zip_path)}.super-list.img")
+            temp_super = os.path.join(os.path.dirname(zip_path), f"{os.path.basename(zip_path)}.super-list.img")
             temp_super = os.path.abspath(temp_super)
             import contextlib
             with contextlib.redirect_stdout(sys.stderr):
@@ -67,9 +67,10 @@ def list_super_partitions(zip_path, tools_dir):
             capture_output=True, text=True,
         )
         if result.returncode != 0:
-            return []
-        info = json.loads(result.stdout)
-        return [item['name'].removesuffix('_a') for item in info.get('partition_table', [])]
+            raise RuntimeError(result.stderr or result.stdout)
+        output = result.stdout[result.stdout.find('{'):]
+        info = json.loads(output)
+        return sorted({item['name'].removesuffix('_a') for item in info.get('partition_table', [])})
     finally:
         if 'temp_super' in locals() and os.path.exists(temp_super):
             os.remove(temp_super)
