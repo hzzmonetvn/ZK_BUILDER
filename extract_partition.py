@@ -57,9 +57,14 @@ def list_super_partitions(zip_path, tools_dir):
                 if result.returncode != 0:
                     raise RuntimeError(result.stderr or result.stdout)
                 match = __import__('re').search(r'Found partitions:\s*([^\r\n]*)', result.stdout)
-                if not match or not match.group(1).strip():
+                if not match:
                     raise RuntimeError(result.stdout or result.stderr)
-                return sorted({name.removesuffix('_a') for name in match.group(1).split()})
+                names = match.group(1).split()
+                if not names:
+                    names = result.stdout[match.end():].split()
+                if not names:
+                    raise RuntimeError(result.stdout or result.stderr)
+                return sorted({name.removesuffix('_a') for name in names})
             if super_entry:
                 temp_file = os.path.abspath(os.path.join(os.path.dirname(zip_path), f"{os.path.basename(zip_path)}.super-list.img"))
                 with __import__('contextlib').redirect_stdout(sys.stderr):
