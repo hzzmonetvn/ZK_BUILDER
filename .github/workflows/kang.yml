@@ -12,9 +12,9 @@ on:
         required: true
         type: string
       partitions:
-        description: 'Các phân vùng cần so sánh (cách nhau bằng dấu phẩy)'
+        description: 'Các phân vùng cần so sánh; để trống sẽ tự động lấy tất cả phân vùng trong super'
         required: false
-        default: 'system,vendor,product,system_ext'
+        default: ''
         type: string
 
 jobs:
@@ -65,7 +65,7 @@ jobs:
           echo "- **Thời gian thực hiện (UTC)**: $(date -u)" >> compare_report.md
           echo "- **ROM 1 (Cũ)**: [Link]($ROM_URL_1)" >> compare_report.md
           echo "- **ROM 2 (Mới)**: [Link]($ROM_URL_2)" >> compare_report.md
-          echo "- **Phân vùng kiểm tra**: \`${{ inputs.partitions }}\`" >> compare_report.md
+          echo "- **Phân vùng kiểm tra**: \`${{ inputs.partitions || 'auto: all super partitions' }}\`" >> compare_report.md
           echo "" >> compare_report.md
           echo "---" >> compare_report.md
           echo "" >> compare_report.md
@@ -76,7 +76,7 @@ jobs:
           echo "- **Thời gian thực hiện (UTC)**: $(date -u)" >> compare_report_full.md
           echo "- **ROM 1 (Cũ)**: [Link]($ROM_URL_1)" >> compare_report_full.md
           echo "- **ROM 2 (Mới)**: [Link]($ROM_URL_2)" >> compare_report_full.md
-          echo "- **Phân vùng kiểm tra**: \`${{ inputs.partitions }}\`" >> compare_report_full.md
+          echo "- **Phân vùng kiểm tra**: \`${{ inputs.partitions || 'auto: all super partitions' }}\`" >> compare_report_full.md
           echo "" >> compare_report_full.md
           echo "---" >> compare_report_full.md
           echo "" >> compare_report_full.md
@@ -86,7 +86,13 @@ jobs:
           PARTITIONS: ${{ inputs.partitions }}
         run: |
           mkdir -p rom_diff_out
-          IFS=',' read -r -a part_array <<< "${{ inputs.partitions }}"
+          if [ -z "$PARTITIONS" ]; then
+            mapfile -t rom1_parts < <(python3 builder/extract_partition.py --zip rom1_temp/rom1.zip --list-partitions --tools builder/tools)
+            mapfile -t rom2_parts < <(python3 builder/extract_partition.py --zip rom2_temp/rom2.zip --list-partitions --tools builder/tools)
+            PARTITIONS=$(printf '%s\n' "${rom1_parts[@]}" "${rom2_parts[@]}" | sort -u | paste -sd, -)
+            echo "Comparing all super partitions: $PARTITIONS"
+          fi
+          IFS=',' read -r -a part_array <<< "$PARTITIONS"
           for part in "${part_array[@]}"; do
             part=$(echo "$part" | xargs) # trim whitespace
             if [ -z "$part" ]; then continue; fi
@@ -178,6 +184,7 @@ jobs:
           fi
 
       - name: Upload Diff Zip & Full Report to Gofile / Pixeldrain
+        continue-on-error: true
         env:
           PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
           GOFILE_API_KEY: ${{ secrets.GOFILE_API_KEY }}

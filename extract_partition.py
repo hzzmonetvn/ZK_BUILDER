@@ -4,6 +4,7 @@ import zipfile
 import subprocess
 import argparse
 import shutil
+import json
 
 SIZE_8GB = int(7.5 * 1024 * 1024 * 1024)  # ~8GB threshold in bytes
 
@@ -41,6 +42,35 @@ def find_entries(zip_file, partition_name):
                 super_entry = info
 
     return direct_img, payload_entry, super_entry
+
+def list_super_partitions(zip_path, tools_dir):
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as z:
+            super_entry = max(
+                (info for info in z.infolist()
+                 if info.filename.lower().endswith('.img') and (
+                     'super' in os.path.basename(info.filename.lower())
+                     or info.file_size >= SIZE_8GB
+                 )),
+                key=lambda info: info.file_size,
+                default=None,
+            )
+            if super_entry is None:
+                return []
+            temp_super = os.path.join(tools_dir, '..', f"{os.path.basename(zip_path)}.super-list.img")
+            temp_super = os.path.abspath(temp_super)
+            stream_extract(z, super_entry, temp_super)
+        result = subprocess.run(
+            ['python3', os.path.join(tools_dir, 'py', 'lpunpack.py'), '--info', '--format', 'json', temp_super],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            return []
+        info = json.loads(result.stdout)
+        return [item['name'].removesuffix('_a') for item in info.get('partition_table', [])]
+    finally:
+        if 'temp_super' in locals() and os.path.exists(temp_super):
+            os.remove(temp_super)
 
 def extract_partition(zip_path, partition_name, output_img_path, tools_dir):
     if not os.path.exists(zip_path):
@@ -173,6 +203,10 @@ if __name__ == "__main__":
     parser.add_argument("--partition", required=True, help="Tên phân vùng cần trích xuất")
     parser.add_argument("--output", required=True, help="Đường dẫn file .img đầu ra")
     parser.add_argument("--tools", required=True, help="Thư mục chứa tools")
+    parser.add_argument("--list-partitions", action="store_true", help="List logical partitions in super image")
     args = parser.parse_args()
-    
-    extract_partition(args.zip, args.partition, args.output, args.tools)
+
+    if args.list_partitions:
+        print(json.dumps(list_super_partitions(args.zip, args.tools)))
+    else:
+        extract_partition(args.zip, args.partition, args.output, args.tools)
