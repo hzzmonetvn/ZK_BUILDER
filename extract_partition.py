@@ -200,8 +200,8 @@ def extract_partition(zip_path, partition_name, output_img_path, tools_dir):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Trích xuất thông minh phân vùng từ ROM zip.")
     parser.add_argument("--zip", required=True, help="Đường dẫn file ROM zip")
-    parser.add_argument("--partition", required=True, help="Tên phân vùng cần trích xuất")
-    parser.add_argument("--output", required=True, help="Đường dẫn file .img đầu ra")
+    parser.add_argument("--partition", help="Tên phân vùng cần trích xuất")
+    parser.add_argument("--output", help="Đường dẫn file .img đầu ra")
     parser.add_argument("--tools", required=True, help="Thư mục chứa tools")
     parser.add_argument("--list-partitions", action="store_true", help="List logical partitions in super image")
     args = parser.parse_args()

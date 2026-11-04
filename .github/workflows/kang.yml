@@ -87,8 +87,14 @@ jobs:
         run: |
           mkdir -p rom_diff_out
           if [ -z "$PARTITIONS" ]; then
-            mapfile -t rom1_parts < <(python3 builder/extract_partition.py --zip rom1_temp/rom1.zip --list-partitions --tools builder/tools)
-            mapfile -t rom2_parts < <(python3 builder/extract_partition.py --zip rom2_temp/rom2.zip --list-partitions --tools builder/tools)
+            rom1_parts_json=$(python3 builder/extract_partition.py --zip rom1_temp/rom1.zip --list-partitions --tools builder/tools)
+            rom2_parts_json=$(python3 builder/extract_partition.py --zip rom2_temp/rom2.zip --list-partitions --tools builder/tools)
+            mapfile -t rom1_parts < <(jq -r '.[]' <<< "$rom1_parts_json")
+            mapfile -t rom2_parts < <(jq -r '.[]' <<< "$rom2_parts_json")
+            if [ "${#rom1_parts[@]}" -eq 0 ] || [ "${#rom2_parts[@]}" -eq 0 ]; then
+              echo "Could not detect logical partitions in both ROM super images."
+              exit 1
+            fi
             PARTITIONS=$(printf '%s\n' "${rom1_parts[@]}" "${rom2_parts[@]}" | sort -u | paste -sd, -)
             echo "Comparing all super partitions: $PARTITIONS"
           fi
