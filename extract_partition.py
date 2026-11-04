@@ -44,26 +44,30 @@ def find_entries(zip_file, partition_name):
     return direct_img, payload_entry, super_entry
 
 def list_super_partitions(zip_path, tools_dir):
+    temp_file = None
     try:
         with zipfile.ZipFile(zip_path, 'r') as z:
-            super_entry = max(
-                (info for info in z.infolist()
-                 if info.filename.lower().endswith('.img') and (
-                     'super' in os.path.basename(info.filename.lower())
-                     or info.file_size >= SIZE_8GB
-                 )),
-                key=lambda info: info.file_size,
-                default=None,
-            )
-            if super_entry is None:
-                return []
-            temp_super = os.path.join(os.path.dirname(zip_path), f"{os.path.basename(zip_path)}.super-list.img")
-            temp_super = os.path.abspath(temp_super)
-            import contextlib
-            with contextlib.redirect_stdout(sys.stderr):
-                stream_extract(z, super_entry, temp_super)
+            direct_img, payload_entry, super_entry = find_entries(z, '')
+            if payload_entry:
+                temp_file = os.path.abspath(os.path.join(os.path.dirname(zip_path), f"{os.path.basename(zip_path)}.payload-list.bin"))
+                with __import__('contextlib').redirect_stdout(sys.stderr):
+                    stream_extract(z, payload_entry, temp_file)
+                payload_tool = os.path.join(tools_dir, 'payload')
+                result = subprocess.run([payload_tool, '-l', temp_file], capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise RuntimeError(result.stderr or result.stdout)
+                match = __import__('re').search(r'Found partitions:\s*\[([^]]*)\]', result.stdout)
+                if not match:
+                    raise RuntimeError(result.stdout or result.stderr)
+                return sorted({name.removesuffix('_a') for name in match.group(1).split()})
+            if super_entry:
+                temp_file = os.path.abspath(os.path.join(os.path.dirname(zip_path), f"{os.path.basename(zip_path)}.super-list.img"))
+                with __import__('contextlib').redirect_stdout(sys.stderr):
+                    stream_extract(z, super_entry, temp_file)
+        if not temp_file:
+            return []
         result = subprocess.run(
-            ['python3', os.path.join(tools_dir, 'py', 'lpunpack.py'), '--info', '--format', 'json', temp_super],
+            ['python3', os.path.join(tools_dir, 'py', 'lpunpack.py'), '--info', '--format', 'json', temp_file],
             capture_output=True, text=True,
         )
         if result.returncode != 0:
@@ -72,8 +76,8 @@ def list_super_partitions(zip_path, tools_dir):
         info = json.loads(output)
         return sorted({item['name'].removesuffix('_a') for item in info.get('partition_table', [])})
     finally:
-        if 'temp_super' in locals() and os.path.exists(temp_super):
-            os.remove(temp_super)
+        if temp_file and os.path.exists(temp_file):
+            os.remove(temp_file)
 
 def extract_partition(zip_path, partition_name, output_img_path, tools_dir):
     if not os.path.exists(zip_path):
