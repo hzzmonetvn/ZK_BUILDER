@@ -56,8 +56,8 @@ def list_super_partitions(zip_path, tools_dir):
                 result = subprocess.run([payload_tool, '-l', temp_file], capture_output=True, text=True)
                 if result.returncode != 0:
                     raise RuntimeError(result.stderr or result.stdout)
-                match = __import__('re').search(r'Found partitions:\s*\[([^]]*)\]', result.stdout)
-                if not match:
+                match = __import__('re').search(r'Found partitions:\s*([^\r\n]*)', result.stdout)
+                if not match or not match.group(1).strip():
                     raise RuntimeError(result.stdout or result.stderr)
                 return sorted({name.removesuffix('_a') for name in match.group(1).split()})
             if super_entry:
