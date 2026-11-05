@@ -1,0 +1,103 @@
+"""Regression tests for ROM comparison metadata and extraction."""
+import json
+import sys
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import extract_partition as extract
+import rom_compare_pipeline as pipeline
+
+
+class PartitionDetectionTests(unittest.TestCase):
+    def test_payload_dumper_go_format(self):
+        output = ("payload.bin: payload.bin\nPayload Version: 2\nFound partitions:\n"
+                  "boot (67 MB), product (3.4 GB), system (821 MB),\n"
+                  "system_ext (288 MB), vendor_dlkm (28 MB)\nNumber of workers: 4\n")
+        self.assertEqual(extract.parse_payload_partitions(output),
+                         ["boot", "product", "system", "system_ext", "vendor_dlkm"])
+
+    def test_no_silent_empty_partition_list(self):
+        with self.assertRaises(ValueError):
+            extract.parse_payload_partitions("Found partitions:\nNumber of workers: 4")
+
+    def test_lpunpack_json_real_key(self):
+        output = 'Read metadata\n{"partitions":[{"name":"system_a"},{"name":"vendor_a"}],"groups":[]}\n'
+        self.assertEqual(extract.parse_super_partitions(output), ["system", "vendor"])
+
+    def test_lpunpack_legacy_key(self):
+        self.assertEqual(extract.parse_super_partitions('{"partition_table":[{"name":"product_b"}]}'),
+                         ["product"])
+
+    def test_select_super_over_payload_boot(self):
+        d1 = {"source": "payload", "partitions": ["boot", "system", "vendor", "vendor_boot"]}
+        d2 = {"source": "super", "partitions": ["system", "vendor", "product"]}
+        self.assertEqual(extract.select_auto_partitions(d1, d2),
+                         ["product", "system", "vendor"])
+
+    def test_filter_payload_filesystems(self):
+        d = {"source": "payload", "partitions": ["abl", "boot", "odm", "product", "vendor_dlkm"]}
+        self.assertEqual(extract.select_auto_partitions(d, d),
+                         ["odm", "product", "vendor_dlkm"])
+
+    def test_reject_unsafe_partition(self):
+        for value in ("../system", "system/a", "", "product;echo"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                extract.valid_partition(value)
+
+    def test_direct_zip_and_suffix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            dest = Path(tmp) / "output" / "system.img"
+            with zipfile.ZipFile(rom, "w") as z:
+                z.writestr("images/system_a.img", b"fake image payload")
+            extract.extract_partition(rom, "system", dest, tmp)
+            self.assertEqual(dest.read_bytes(), b"fake image payload")
+
+    def test_detect_super_json_without_real_9gb_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            with zipfile.ZipFile(rom, "w") as z:
+                z.writestr("images/super.img", b"test")
+            with mock.patch.object(extract, "run_tool", return_value='{"partitions":[{"name":"system_a"}]}'):
+                found = extract.describe_partitions(rom, tmp)
+            self.assertEqual(found, {"source": "super", "partitions": ["system"]})
+
+    def test_detect_zip_direct_partitions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            with zipfile.ZipFile(rom, "w") as z:
+                z.writestr("system_a.img", b"test")
+            self.assertEqual(extract.describe_partitions(rom, tmp),
+                             {"source": "images", "partitions": ["system"]})
+
+
+class PipelineTests(unittest.TestCase):
+    def test_image_format_ext4_and_erofs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "test.img"
+            b = bytearray(1100)
+            b[1024:1028] = pipeline.EROFS_MAGIC
+            p.write_bytes(b)
+            self.assertEqual(pipeline.image_format(p), "erofs")
+            b[1024:1028] = b"\x00" * 4
+            b[1080:1082] = pipeline.EXT4_MAGIC
+            p.write_bytes(b)
+            self.assertEqual(pipeline.image_format(p), "ext4")
+            b[:4] = pipeline.SPARSE_MAGIC
+            p.write_bytes(b)
+            self.assertEqual(pipeline.image_format(p), "sparse")
+
+    def test_error_is_reflected_in_both_reports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = [Path(tmp) / "brief.md", Path(tmp) / "full.md"]
+            pipeline.record(paths, "system", "**ERROR:** extraction failed")
+            for p in paths:
+                self.assertIn("extraction failed", p.read_text())
+
+
+if __name__ == "__main__":
+    unittest.main()

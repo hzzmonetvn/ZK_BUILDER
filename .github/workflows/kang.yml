@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout Builder (main branch)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.ref }}
           path: builder
@@ -81,105 +81,41 @@ jobs:
           echo "---" >> compare_report_full.md
           echo "" >> compare_report_full.md
 
+      - name: Check ROM archive integrity
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          for archive in ("rom1_temp/rom1.zip", "rom2_temp/rom2.zip"):
+              if not zipfile.is_zipfile(archive):
+                  raise SystemExit("Invalid or incomplete ROM ZIP: " + archive)
+              with zipfile.ZipFile(archive) as z:
+                  if not z.infolist():
+                      raise SystemExit("Empty ROM ZIP: " + archive)
+              print("ROM ZIP validated:", archive)
+          PY
+
+      - name: Set up filesystem extractors
+        run: |
+          if ! command -v debugfs >/dev/null || ! command -v simg2img >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq e2fsprogs android-sdk-libsparse-utils
+          fi
+
       - name: Compare Partitions Sequentially
         env:
           PARTITIONS: ${{ inputs.partitions }}
         run: |
-          mkdir -p rom_diff_out
-          if [ -z "$PARTITIONS" ]; then
-            rom1_parts_json=$(python3 builder/extract_partition.py --zip rom1_temp/rom1.zip --list-partitions --tools builder/tools)
-            rom2_parts_json=$(python3 builder/extract_partition.py --zip rom2_temp/rom2.zip --list-partitions --tools builder/tools)
-            mapfile -t rom1_parts < <(jq -r '.[]' <<< "$rom1_parts_json")
-            mapfile -t rom2_parts < <(jq -r '.[]' <<< "$rom2_parts_json")
-            if [ "${#rom1_parts[@]}" -eq 0 ] || [ "${#rom2_parts[@]}" -eq 0 ]; then
-              echo "Could not detect logical partitions in both ROM super images."
-              exit 1
-            fi
-            PARTITIONS=$(printf '%s\n' "${rom1_parts[@]}" "${rom2_parts[@]}" | sort -u | paste -sd, -)
-            echo "Comparing all super partitions: $PARTITIONS"
-          fi
-          IFS=',' read -r -a part_array <<< "$PARTITIONS"
-          for part in "${part_array[@]}"; do
-            part=$(echo "$part" | xargs) # trim whitespace
-            if [ -z "$part" ]; then continue; fi
-            
-            echo "=================================================="
-            echo "Processing Partition: $part"
-            echo "=================================================="
-            
-            # Create directories
-            mkdir -p rom1_temp/images rom2_temp/images
-            mkdir -p rom1_temp/extracted rom2_temp/extracted
-            
-            # Extract both ROMs concurrently
-            echo "Extracting $part.img from both ROMs..."
-            python3 builder/extract_partition.py --zip rom1_temp/rom1.zip --partition "$part" --output "rom1_temp/images/${part}.img" --tools builder/tools &
-            extract1_pid=$!
-            python3 builder/extract_partition.py --zip rom2_temp/rom2.zip --partition "$part" --output "rom2_temp/images/${part}.img" --tools builder/tools &
-            extract2_pid=$!
-            extract1_status=0
-            extract2_status=0
-            wait "$extract1_pid" || extract1_status=$?
-            wait "$extract2_pid" || extract2_status=$?
-
-            if [ "$extract1_status" -eq 0 ] && [ "$extract2_status" -eq 0 ]; then
-                # Unpack both EROFS images concurrently
-                echo "Unpacking $part.img from both ROMs..."
-                if [ -f "rom1_temp/images/${part}.img" ]; then
-                  ./builder/tools/extract.erofs -x -i "rom1_temp/images/${part}.img" -o "rom1_temp/extracted" > /dev/null 2>&1 &
-                  unpack1_pid=$!
-                else
-                  unpack1_pid=""
-                fi
-                if [ -f "rom2_temp/images/${part}.img" ]; then
-                  ./builder/tools/extract.erofs -x -i "rom2_temp/images/${part}.img" -o "rom2_temp/extracted" > /dev/null 2>&1 &
-                  unpack2_pid=$!
-                else
-                  unpack2_pid=""
-                fi
-                if [ -n "$unpack1_pid" ]; then
-                  wait "$unpack1_pid" || echo "Failed to unpack ROM 1 ${part}.img"
-                  rm -f "rom1_temp/images/${part}.img"
-                fi
-                if [ -n "$unpack2_pid" ]; then
-                  wait "$unpack2_pid" || echo "Failed to unpack ROM 2 ${part}.img"
-                  rm -f "rom2_temp/images/${part}.img"
-                fi
-                
-                # Compare directories
-                if [ -d "rom1_temp/extracted/${part}" ] && [ -d "rom2_temp/extracted/${part}" ]; then
-                  python3 builder/compare_roms.py \
-                    --dir1 "rom1_temp/extracted/${part}" \
-                    --dir2 "rom2_temp/extracted/${part}" \
-                    --partition "$part" \
-                    --output compare_report.md \
-                    --output-full compare_report_full.md \
-                    --diff-out rom_diff_out
-                else
-                  echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report.md
-                  echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report_full.md
-                  echo "❌ Không thể giải nén cấu trúc thư mục của một trong hai ROM." >> compare_report.md
-                  echo "❌ Không thể giải nén cấu trúc thư mục của một trong hai ROM." >> compare_report_full.md
-                  echo "---" >> compare_report.md
-                  echo "---" >> compare_report.md
-                fi
-
-            else
-              echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report.md
-              echo "## Phân vùng / Partition: \`${part^^}\`" >> compare_report_full.md
-              echo "⚠️ Phân vùng không tồn tại hoặc không thể trích xuất trong ROM 1." >> compare_report.md
-              echo "⚠️ Phân vùng không tồn tại hoặc không thể trích xuất trong ROM 1." >> compare_report.md
-              echo "---" >> compare_report.md
-              echo "---" >> compare_report.md
-            fi
-            
-            # Clean up partition-specific data immediately to save disk space
-            echo "Cleaning up files for partition: $part..."
-            rm -rf rom1_temp/images rom2_temp/images
-            rm -rf rom1_temp/extracted rom2_temp/extracted
-          done
+          python3 -u builder/rom_compare_pipeline.py \
+            --rom1 rom1_temp/rom1.zip \
+            --rom2 rom2_temp/rom2.zip \
+            --tools builder/tools \
+            --partitions "$PARTITIONS" \
+            --report compare_report.md \
+            --full-report compare_report_full.md \
+            --diff-out rom_diff_out
 
       - name: Package diff files
+        if: always()
         run: |
           if [ -d "rom_diff_out" ] && [ "$(ls -A rom_diff_out)" ]; then
             echo "📦 Packaging different files..."
@@ -190,6 +126,7 @@ jobs:
           fi
 
       - name: Upload Diff Zip & Full Report to Gofile / Pixeldrain
+        if: always()
         continue-on-error: true
         env:
           PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
@@ -206,11 +143,11 @@ jobs:
             # Upload to Pixeldrain
             echo "📤 Uploading diff zip to Pixeldrain..."
             if [ -n "$PIXELDRAIN_API_KEY" ]; then
-              PD_RES=$(curl -sf -u ":$PIXELDRAIN_API_KEY" -F "file=@rom_diff.zip" "https://pixeldrain.com/api/file")
+              PD_RES=$(curl -sf -u ":$PIXELDRAIN_API_KEY" -F "file=@rom_diff.zip" "https://pixeldrain.com/api/file" || true)
             else
-              PD_RES=$(curl -sf -F "file=@rom_diff.zip" "https://pixeldrain.com/api/file")
+              PD_RES=$(curl -sf -F "file=@rom_diff.zip" "https://pixeldrain.com/api/file" || true)
             fi
-            PD_ID=$(echo "$PD_RES" | jq -r '.id // empty')
+            PD_ID=$(echo "$PD_RES" | jq -r '.id // empty' 2>/dev/null || true)
             if [ -n "$PD_ID" ]; then
               PIXEL_LINK="https://pixeldrain.com/u/${PD_ID}"
               echo "✅ Pixeldrain: $PIXEL_LINK"
@@ -220,14 +157,14 @@ jobs:
             
             # Upload to Gofile
             echo "📤 Uploading diff zip to Gofile..."
-            SERVER=$(curl -sf "https://api.gofile.io/servers" | jq -r '.data.servers[0].name // empty')
+            SERVER=$(curl -sf "https://api.gofile.io/servers" | jq -r '.data.servers[0].name // empty' 2>/dev/null || true)
             if [ -n "$SERVER" ] && [ "$SERVER" != "null" ]; then
               if [ -n "$GOFILE_API_KEY" ]; then
-                GF_RES=$(curl -sf -H "Authorization: Bearer $GOFILE_API_KEY" -F "file=@rom_diff.zip" "https://${SERVER}.gofile.io/contents/uploadfile")
+                GF_RES=$(curl -sf -H "Authorization: Bearer $GOFILE_API_KEY" -F "file=@rom_diff.zip" "https://${SERVER}.gofile.io/contents/uploadfile" || true)
               else
-                GF_RES=$(curl -sf -F "file=@rom_diff.zip" "https://${SERVER}.gofile.io/contents/uploadfile")
+                GF_RES=$(curl -sf -F "file=@rom_diff.zip" "https://${SERVER}.gofile.io/contents/uploadfile" || true)
               fi
-              GF_LINK=$(echo "$GF_RES" | jq -r '.data.downloadPage // empty')
+              GF_LINK=$(echo "$GF_RES" | jq -r '.data.downloadPage // empty' 2>/dev/null || true)
               if [ -n "$GF_LINK" ]; then
                 GOFILE_LINK="$GF_LINK"
                 echo "✅ Gofile: $GOFILE_LINK"
@@ -243,11 +180,11 @@ jobs:
             # Upload report to Pixeldrain
             echo "📤 Uploading report to Pixeldrain..."
             if [ -n "$PIXELDRAIN_API_KEY" ]; then
-              PD_RES=$(curl -sf -u ":$PIXELDRAIN_API_KEY" -F "file=@compare_report_full.md" "https://pixeldrain.com/api/file")
+              PD_RES=$(curl -sf -u ":$PIXELDRAIN_API_KEY" -F "file=@compare_report_full.md" "https://pixeldrain.com/api/file" || true)
             else
-              PD_RES=$(curl -sf -F "file=@compare_report_full.md" "https://pixeldrain.com/api/file")
+              PD_RES=$(curl -sf -F "file=@compare_report_full.md" "https://pixeldrain.com/api/file" || true)
             fi
-            PD_ID=$(echo "$PD_RES" | jq -r '.id // empty')
+            PD_ID=$(echo "$PD_RES" | jq -r '.id // empty' 2>/dev/null || true)
             if [ -n "$PD_ID" ]; then
               PIXEL_REPORT_LINK="https://pixeldrain.com/u/${PD_ID}"
               echo "✅ Pixeldrain Full Report: $PIXEL_REPORT_LINK"
@@ -257,14 +194,14 @@ jobs:
             
             # Upload report to Gofile
             echo "📤 Uploading report to Gofile..."
-            SERVER=$(curl -sf "https://api.gofile.io/servers" | jq -r '.data.servers[0].name // empty')
+            SERVER=$(curl -sf "https://api.gofile.io/servers" | jq -r '.data.servers[0].name // empty' 2>/dev/null || true)
             if [ -n "$SERVER" ] && [ "$SERVER" != "null" ]; then
               if [ -n "$GOFILE_API_KEY" ]; then
-                GF_RES=$(curl -sf -H "Authorization: Bearer $GOFILE_API_KEY" -F "file=@compare_report_full.md" "https://${SERVER}.gofile.io/contents/uploadfile")
+                GF_RES=$(curl -sf -H "Authorization: Bearer $GOFILE_API_KEY" -F "file=@compare_report_full.md" "https://${SERVER}.gofile.io/contents/uploadfile" || true)
               else
-                GF_RES=$(curl -sf -F "file=@compare_report_full.md" "https://${SERVER}.gofile.io/contents/uploadfile")
+                GF_RES=$(curl -sf -F "file=@compare_report_full.md" "https://${SERVER}.gofile.io/contents/uploadfile" || true)
               fi
-              GF_LINK=$(echo "$GF_RES" | jq -r '.data.downloadPage // empty')
+              GF_LINK=$(echo "$GF_RES" | jq -r '.data.downloadPage // empty' 2>/dev/null || true)
               if [ -n "$GF_LINK" ]; then
                 GOFILE_REPORT_LINK="$GF_LINK"
                 echo "✅ Gofile Full Report: $GOFILE_REPORT_LINK"
@@ -297,14 +234,17 @@ jobs:
           rm -f temp_links.md
 
       - name: Clean up remaining files
+        if: always()
         run: |
           rm -rf rom1_temp rom2_temp rom_diff_out
 
       - name: Publish Summary
+        if: always()
         run: |
           cat compare_report.md >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Report Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rom_comparison_report

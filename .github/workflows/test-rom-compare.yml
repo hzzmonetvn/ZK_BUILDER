@@ -1,0 +1,22 @@
+name: ROM Comparison Regression Tests
+
+on:
+  push:
+    paths:
+      - 'extract_partition.py'
+      - 'rom_compare_pipeline.py'
+      - 'tests/**'
+      - '.github/workflows/kang.yml'
+      - '.github/workflows/test-rom-compare.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test Python syntax
+        run: python3 -m compileall -q extract_partition.py rom_compare_pipeline.py compare_roms.py tests
+      - name: Run regression tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
