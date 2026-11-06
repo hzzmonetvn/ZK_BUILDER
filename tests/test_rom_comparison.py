@@ -64,7 +64,8 @@ class PartitionDetectionTests(unittest.TestCase):
                 z.writestr("images/super.img", b"test")
             with mock.patch.object(extract, "run_tool", return_value='{"partitions":[{"name":"system_a"}]}'):
                 found = extract.describe_partitions(rom, tmp)
-            self.assertEqual(found, {"source": "super", "partitions": ["system"]})
+            self.assertEqual(found, {"source": "super", "partitions": ["system"],
+                                     "super_member": "images/super.img"})
 
 
     def test_renamed_super_img_recognized_by_lp_geometry(self):
