@@ -6,23 +6,20 @@ import shutil
 def get_file_hash_and_size(filepath):
     """Returns MD5 hash and size of a file or symlink."""
     hasher = hashlib.md5()
-    try:
-        if os.path.islink(filepath):
-            target = os.readlink(filepath)
-            return hashlib.md5(target.encode('utf-8')).hexdigest(), len(target)
-        size = os.path.getsize(filepath)
-        with open(filepath, 'rb') as f:
-            for chunk in iter(lambda: f.read(65536), b''):
-                hasher.update(chunk)
-        return hasher.hexdigest(), size
-    except Exception:
-        return None, 0
+    if os.path.islink(filepath):
+        target = os.readlink(filepath)
+        return hashlib.md5(target.encode('utf-8')).hexdigest(), len(target)
+    size = os.path.getsize(filepath)
+    with open(filepath, 'rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            hasher.update(chunk)
+    return hasher.hexdigest(), size
 
 def scan_directory(base_dir):
     """Scans directory recursively and returns a dict mapping relative paths to (size, hash) or ("symlink", target)."""
     file_map = {}
-    if not os.path.exists(base_dir):
-        return file_map
+    if not os.path.isdir(base_dir):
+        raise ValueError("Missing or invalid extracted directory: %s" % base_dir)
     base_dir = os.path.abspath(base_dir)
     for root, dirs, files in os.walk(base_dir, followlinks=False):
         # Handle symlinks to directories (os.walk includes dir symlinks in `dirs` but won't recurse into them)
@@ -35,8 +32,8 @@ def scan_directory(base_dir):
                 try:
                     target = os.readlink(full_path)
                     file_map[rel_path] = ("symlink", target)
-                except Exception:
-                    pass
+                except OSError as e:
+                    raise OSError("Unable to read symlink %s: %s" % (full_path, e)) from e
         for d in dirs_to_skip:
             dirs.remove(d)
 
@@ -47,14 +44,11 @@ def scan_directory(base_dir):
                 try:
                     target = os.readlink(full_path)
                     file_map[rel_path] = ("symlink", target)
-                except Exception:
-                    pass
+                except OSError as e:
+                    raise OSError("Unable to read symlink %s: %s" % (full_path, e)) from e
             else:
-                try:
-                    size = os.path.getsize(full_path)
-                    file_map[rel_path] = (size, None)
-                except Exception:
-                    pass
+                size = os.path.getsize(full_path)
+                file_map[rel_path] = (size, None)
     return file_map
 
 def safe_copy(src, dst):
@@ -86,6 +80,19 @@ def compare_partitions(dir1, dir2, partition_name, output_md_path, diff_out_dir=
     only_in_1 = []
     only_in_2 = []
     modified = []
+
+    # Abort instead of producing a misleading all-zero report.
+    if not files1 or not files2:
+        raise ValueError("Empty filesystem tree: ROM1=%d files, ROM2=%d files. "
+                         "Check extraction output paths." % (len(files1), len(files2)))
+
+    common_paths = set(files1).intersection(files2)
+    if not common_paths:
+        raise ValueError("No common relative file paths between the two ROM trees. "
+                         "Likely an incorrect extraction root (ROM1 sample=%s; ROM2 sample=%s)" %
+                         (next(iter(files1)), next(iter(files2))))
+    print("Matched %d relative file paths for partition %s" %
+          (len(common_paths), partition_name), flush=True)
 
     # All unique relative paths
     all_paths = sorted(list(set(files1.keys()) | set(files2.keys())))

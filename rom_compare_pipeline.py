@@ -73,6 +73,32 @@ def unpack_image(image, target_dir, erofs_tool):
     return kind
 
 
+
+def filesystem_root(extraction_dir, kind):
+    """Select the real filesystem root written by extract.erofs.
+
+    extract.erofs creates a directory named after the -o target inside the
+    target (e.g. rom1/rom1/system and rom2/rom2/system), plus config/ metadata.
+    Comparing the outer dirs would make every path appear unique to one ROM.
+    """
+    root = Path(extraction_dir)
+    if not root.is_dir():
+        raise RuntimeError("Filesystem extraction directory missing: %s" % root)
+    if kind == "erofs":
+        child = root / root.name
+        if child.is_dir():
+            root = child
+        else:
+            # On some extractor versions the output is directly under -o.
+            # Keep support for that layout, while guarding false comparisons
+            # in compare_roms.py when no files have common relative paths.
+            print("EROFS output without nested root; using %s" % root, flush=True)
+    if not any(root.iterdir()):
+        raise RuntimeError("No filesystem contents found under %s" % root)
+    print("Normalized filesystem root: %s" % root, flush=True)
+    return root
+
+
 def run(args):
     # Keep a verified super.img.zst extracted once throughout the comparison.
     with tempfile.TemporaryDirectory(prefix="compare_super_cache_", dir=Path.cwd()) as cache:
@@ -136,7 +162,7 @@ def run_with_cache(args, super_cache):
                     print("ROM %d: %s extracted as %s" % (idx, part, kind), flush=True)
                     image.unlink(missing_ok=True)
                     image.with_suffix(".raw.img").unlink(missing_ok=True)
-                    out.append(destination)
+                    out.append(filesystem_root(destination, kind))
                 command([sys.executable, str(tools.parent / "compare_roms.py"),
                          "--dir1", str(out[0]), "--dir2", str(out[1]),
                          "--partition", part, "--output", str(reports[0]),

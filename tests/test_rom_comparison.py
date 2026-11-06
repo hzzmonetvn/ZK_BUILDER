@@ -12,6 +12,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import extract_partition as extract
 import rom_compare_pipeline as pipeline
+import compare_roms as compare
 
 
 class PartitionDetectionTests(unittest.TestCase):
@@ -273,6 +274,61 @@ class PipelineTests(unittest.TestCase):
             p.write_bytes(b)
             self.assertEqual(pipeline.image_format(p), "sparse")
 
+    def test_erofs_nested_roots_compare_matching_framework_jar(self):
+        """Regression: different 'rom1'/'rom2' wrapper names must not create 0 modified."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            rom1, rom2 = base / "rom1", base / "rom2"
+            f1 = rom1 / "rom1" / "system" / "framework" / "framework.jar"
+            f2 = rom2 / "rom2" / "system" / "framework" / "framework.jar"
+            for dest in (f1, f2):
+                dest.parent.mkdir(parents=True)
+            # Same file size, different content, so hash comparison is required.
+            f1.write_bytes(b"first ROM version")
+            f2.write_bytes(b"second ROM versio")
+            for root, label in ((rom1, "rom1"), (rom2, "rom2")):
+                (root / "config").mkdir()
+                (root / "config" / (label + "_file_contexts")).write_text("metadata")
+
+            actual1 = pipeline.filesystem_root(rom1, "erofs")
+            actual2 = pipeline.filesystem_root(rom2, "erofs")
+            self.assertEqual(actual1, rom1 / "rom1")
+            self.assertEqual(actual2, rom2 / "rom2")
+            report = base / "report.md"
+            compare.compare_partitions(actual1, actual2, "system", report)
+            contents = report.read_text()
+            self.assertIn("**Tệp bị thay đổi (Modified)**: 1", contents)
+            self.assertIn("system/framework/framework.jar", contents)
+            self.assertIn("Content changed", contents)
+            self.assertIn("**Chỉ có ở ROM 1 (Xóa đi ở ROM 2)**: 0", contents)
+            self.assertIn("**Chỉ có ở ROM 2 (Thêm mới ở ROM 2)**: 0", contents)
+
+    def test_empty_or_disjoint_tree_never_produces_zero_modified_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            one, two = base / "one", base / "two"
+            one.mkdir()
+            two.mkdir()
+            with self.assertRaisesRegex(ValueError, "Empty filesystem"):
+                compare.compare_partitions(one, two, "system", base / "report.md")
+            (one / "rom1").write_text("data")
+            (two / "rom2").write_text("data")
+            with self.assertRaisesRegex(ValueError, "No common relative file paths"):
+                compare.compare_partitions(one, two, "system", base / "report.md")
+            self.assertFalse((base / "report.md").exists())
+
+    def test_hash_read_failure_is_not_considered_equal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(FileNotFoundError):
+                compare.get_file_hash_and_size(Path(tmp) / "missing.jar")
+
+    def test_erofs_direct_layout_still_supported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "rom1"
+            (root / "system").mkdir(parents=True)
+            (root / "system" / "build.prop").write_text("build")
+            self.assertEqual(pipeline.filesystem_root(root, "erofs"), root)
+
     def test_error_is_reflected_in_both_reports(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = [Path(tmp) / "brief.md", Path(tmp) / "full.md"]
@@ -314,10 +370,11 @@ class PipelineTests(unittest.TestCase):
             with mock.patch.object(pipeline, "describe_partitions", side_effect=[rom1, rom2]), \
                  mock.patch.object(pipeline, "extract_partition") as extractor, \
                  mock.patch.object(pipeline, "unpack_image", return_value="erofs"), \
-                 mock.patch.object(pipeline, "command", return_value=("", "")) as compare:
+                 mock.patch.object(pipeline, "filesystem_root", side_effect=lambda root, kind: root), \
+                 mock.patch.object(pipeline, "command", return_value=("", "")) as compare_cmd:
                 self.assertEqual(pipeline.run(args), 0)
             self.assertEqual(extractor.call_count, 2)
-            self.assertEqual(compare.call_count, 1)
+            self.assertEqual(compare_cmd.call_count, 1)
             self.assertIn("Đã bỏ qua **2**", (base / "full.md").read_text())
 
 
