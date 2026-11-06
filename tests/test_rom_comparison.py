@@ -88,7 +88,10 @@ class PartitionDetectionTests(unittest.TestCase):
             rom = Path(tmp) / "rom.zip"
             with zipfile.ZipFile(rom, "w") as z:
                 z.writestr("huge_unknown.img", extract.ANDROID_SPARSE_MAGIC + b"\0" * 100)
+            def fake_materialize(archive, members, output):
+                Path(output).write_bytes(b"verified sample")
             with mock.patch.object(extract, "SPARSE_IMAGE_BYTES", 64), \
+                 mock.patch.object(extract, "materialize_super", side_effect=fake_materialize), \
                  mock.patch.object(extract, "run_tool",
                                    return_value='{"partitions":[{"name":"product_a"}]}'):
                 result = extract.describe_partitions(rom, tmp)
@@ -106,6 +109,50 @@ class PartitionDetectionTests(unittest.TestCase):
             with mock.patch.object(extract, "run_tool", side_effect=RuntimeError("invalid metadata")):
                 with self.assertRaisesRegex(RuntimeError, "none contained readable super"):
                     extract.describe_partitions(rom, tmp)
+
+    def test_split_super_img_detection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            with zipfile.ZipFile(rom, "w") as z:
+                z.writestr("images/super.img.0", b"A" * 8192)
+                z.writestr("images/super.img.1", b"B" * 8192)
+                z.writestr("images/boot.img", b"boot")
+            with mock.patch.object(extract, "run_tool",
+                                   return_value='{"partitions":[{"name":"system_a"},{"name":"vendor_a"}]}'):
+                found = extract.describe_partitions(rom, tmp)
+            self.assertEqual(found["source"], "super")
+            self.assertEqual(found["super_members"], ["images/super.img.0",
+                                                        "images/super.img.1"])
+            self.assertEqual(found["partitions"], ["system", "vendor"])
+
+    def test_raw_split_super_assembly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            target = Path(tmp) / "assembled.img"
+            with zipfile.ZipFile(rom, "w") as z:
+                z.writestr("super.img.0", b"ABCD")
+                z.writestr("super.img.1", b"EFGH")
+            with zipfile.ZipFile(rom) as z:
+                members = [z.getinfo("super.img.0"), z.getinfo("super.img.1")]
+                extract.materialize_super(z, members, target)
+            self.assertEqual(target.read_bytes(), b"ABCDEFGH")
+
+    def test_split_super_member_used_for_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            dest = Path(tmp) / "system.img"
+            with zipfile.ZipFile(rom, "w") as z:
+                z.writestr("super.img.0", b"AAAA")
+                z.writestr("super.img.1", b"BBBB")
+            def fake_unpack(cmd):
+                output = Path(cmd[-1])
+                output.mkdir(exist_ok=True)
+                (output / "system_a.img").write_bytes(b"system contents")
+                return ""
+            with mock.patch.object(extract, "run_tool", side_effect=fake_unpack):
+                extract.extract_partition(rom, "system", dest, tmp,
+                                          super_members=["super.img.0", "super.img.1"])
+            self.assertEqual(dest.read_bytes(), b"system contents")
 
     def test_selected_super_member_is_used_for_extraction(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -158,7 +205,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_missing_partitions_are_skipped_without_fake_comparison(self):
         from argparse import Namespace
-        from contextlib import redirect_stdout
+        from contextlib import redirect_stdout, redirect_stderr
         import io
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -170,8 +217,8 @@ class PipelineTests(unittest.TestCase):
             output = io.StringIO()
             with mock.patch.object(pipeline, "describe_partitions", side_effect=[rom1, rom2]), \
                  mock.patch.object(pipeline, "extract_partition") as extractor, \
-                 redirect_stdout(output):
-                self.assertEqual(pipeline.run(args), 0)
+                 redirect_stdout(output), redirect_stderr(output):
+                self.assertEqual(pipeline.run(args), 1)
             extractor.assert_not_called()
             self.assertIn("NO COMPARISON:", output.getvalue())
             self.assertIn("Đã bỏ qua **3**", (base / "summary.md").read_text())

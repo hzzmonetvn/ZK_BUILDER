@@ -123,7 +123,8 @@ def run(args):
                     print("Extracting ROM %d: %s" % (idx, part), flush=True)
                     metadata = d1 if idx == 1 else d2
                     extract_partition(rom, part, image, tools,
-                                      super_member=metadata.get("super_member"))
+                                      super_member=metadata.get("super_member"),
+                                      super_members=metadata.get("super_members"))
                     kind = unpack_image(image, destination, tools / "extract.erofs")
                     print("ROM %d: %s extracted as %s" % (idx, part, kind), flush=True)
                     image.unlink(missing_ok=True)
@@ -147,15 +148,14 @@ def run(args):
               file=sys.stderr, flush=True)
         return 1
     if not compared:
-        message = ("No shared filesystem partitions were compared. "
-                   "All requested partitions were skipped; verify the second ROM "
-                   "contains system/vendor/product images or a super.img.")
-        print("NO COMPARISON: " + message, flush=True)
+        message = ("No shared filesystem partitions were compared. The ROM input "
+                   "may be missing super.img, may use an unrecognized archive layout, "
+                   "or may not contain any comparable filesystem partition.")
+        print("NO COMPARISON: " + message, file=sys.stderr, flush=True)
         for report in reports:
             with open(report, "a", encoding="utf-8") as f:
                 f.write("## Không có dữ liệu để so sánh\n\n" + message + "\n\n")
-        # Intentional skip is not a processing error; don't call it a successful comparison.
-        return 0
+        return 1
     print("Compared %d partition(s) successfully; skipped %d missing." %
           (compared, len(skipped)), flush=True)
     return 0

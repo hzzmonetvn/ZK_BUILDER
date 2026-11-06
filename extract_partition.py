@@ -66,6 +66,58 @@ def super_candidates(archive):
     return [entry for _, _, entry in sorted(matches, key=lambda row: (row[0], row[1], row[2].filename))]
 
 
+
+def split_super_groups(archive):
+    """Collect Xiaomi/Android split super images: super.img.0, super.img.1, ..."""
+    groups = {}
+    for entry in archive.infolist():
+        if entry.is_dir():
+            continue
+        m = re.fullmatch(r"(.+\.img)\.(\d+)", entry.filename, re.IGNORECASE)
+        if m:
+            groups.setdefault(m.group(1), {})[int(m.group(2))] = entry
+    result = []
+    for name, indexed in groups.items():
+        ids = sorted(indexed)
+        if ids != list(range(len(ids))):
+            if "super" in Path(name).name.lower():
+                raise ValueError("Missing split super segment(s) in %s: %s" % (name, ids))
+            continue
+        members = [indexed[i] for i in ids]
+        result.append((0 if "super" in Path(name).name.lower() else 1,
+                       -sum(info.file_size for info in members), members))
+    return [members for _, _, members in sorted(result, key=lambda row: row[:2])]
+
+
+def materialize_super(archive, members, output):
+    """Reconstruct split sparse/raw images for LP metadata extraction."""
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with archive.open(members[0]) as fp:
+        sparse = fp.read(4) == ANDROID_SPARSE_MAGIC
+    if len(members) == 1 and not sparse:
+        stream_extract(archive, members[0], output)
+        return
+    with tempfile.TemporaryDirectory(prefix="super_parts_", dir=output.parent) as temp:
+        paths = []
+        for i, member in enumerate(members):
+            path = Path(temp) / ("part_%03d.img" % i)
+            stream_extract(archive, member, path)
+            paths.append(path)
+        if sparse:
+            tool = shutil.which("simg2img")
+            if not tool:
+                raise RuntimeError("simg2img is required to join Android sparse super parts")
+            run_tool([tool, *map(str, paths), str(output)])
+        else:
+            with output.open("wb") as target:
+                for path in paths:
+                    with path.open("rb") as source:
+                        shutil.copyfileobj(source, target, length=1024 * 1024)
+    if not output.is_file() or not output.stat().st_size:
+        raise RuntimeError("Super image reconstruction produced no data")
+
+
 def find_entries(archive, partition_name=""):
     direct = payload = None
     direct_names = {name + ".img" for name in
@@ -140,28 +192,35 @@ def describe_partitions(zip_path, tools_dir):
                     stream_extract(archive, payload, local)
                     names = parse_payload_partitions(run_tool([str(tool), "-l", str(local)]))
             return {"source": "payload", "partitions": names}
-        candidates = super_candidates(archive)
+        groups = split_super_groups(archive) + [[candidate] for candidate in super_candidates(archive)]
         errors = []
-        for candidate in candidates:
-            print("Checking candidate super image: %s (%.2f GiB)" %
-                  (candidate.filename, candidate.file_size / 1024**3),
-                  file=sys.stderr)
+        for members in groups:
+            names_in_zip = [member.filename for member in members]
+            print("Checking super candidate: %s" % ", ".join(names_in_zip), file=sys.stderr)
             try:
                 with tempfile.TemporaryDirectory(prefix="rom_super_", dir=zip_path.parent) as tmp:
                     local = Path(tmp) / "super.img"
-                    stream_extract(archive, candidate, local)
+                    materialize_super(archive, members, local)
                     unpacker = tools_dir / "py" / "lpunpack.py"
                     output = run_tool([sys.executable, str(unpacker), "--info",
                                        "--format", "json", str(local)])
                     names = parse_super_partitions(output)
-                    print("Confirmed super image: %s; %d partitions" %
-                          (candidate.filename, len(names)), file=sys.stderr)
-                    return {"source": "super", "partitions": names,
-                            "super_member": candidate.filename}
+                    print("Validated super image %s: %s" %
+                          (", ".join(names_in_zip), ", ".join(names)), file=sys.stderr)
+                    result = {"source": "super", "partitions": names}
+                    if len(members) == 1:
+                        result["super_member"] = members[0].filename
+                    else:
+                        result["super_members"] = names_in_zip
+                    return result
             except (RuntimeError, OSError, ValueError) as error:
-                errors.append("%s: %s" % (candidate.filename, str(error)[-800:]))
-                print("Not a usable super image: %s: %s" %
-                      (candidate.filename, error), file=sys.stderr)
+                errors.append("%s: %s" % (", ".join(names_in_zip), str(error)[-800:]))
+                print("Candidate rejected: %s" % error, file=sys.stderr)
+        print("ROM ZIP inventory (40 largest entries):", file=sys.stderr)
+        for entry in sorted((entry for entry in archive.infolist() if not entry.is_dir()),
+                            key=lambda entry: entry.file_size, reverse=True)[:40]:
+            print("  %.2f MiB: %s" % (entry.file_size / 1024**2, entry.filename),
+                  file=sys.stderr)
         images = {normalise(Path(entry.filename).stem.lower()) for entry in archive.infolist()
                   if not entry.is_dir() and entry.filename.lower().endswith(".img")}
         if images:
@@ -191,7 +250,7 @@ def valid_partition(name):
     return name
 
 
-def extract_partition(zip_path, partition_name, output_img_path, tools_dir, super_member=None):
+def extract_partition(zip_path, partition_name, output_img_path, tools_dir, super_member=None, super_members=None):
     partition_name = valid_partition(partition_name)
     zip_path = Path(zip_path).resolve()
     output_img_path = Path(output_img_path).resolve()
@@ -199,12 +258,14 @@ def extract_partition(zip_path, partition_name, output_img_path, tools_dir, supe
     output_img_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path) as archive:
         direct, payload, super_image = find_entries(archive, partition_name)
-        if super_member:
-            # Reuse the exact ZIP member whose LP metadata was validated.
+        if super_member or super_members:
             try:
-                super_image = archive.getinfo(super_member)
+                chosen = [archive.getinfo(item) for item in (super_members or [super_member])]
             except KeyError as error:
-                raise ValueError("Validated super member is missing: " + super_member) from error
+                raise ValueError("Validated super member missing: %s" % error) from error
+            direct, payload, super_image = None, None, chosen[0]
+        else:
+            chosen = [super_image] if super_image is not None else []
         if direct is not None:
             stream_extract(archive, direct, output_img_path)
             if output_img_path.stat().st_size == 0:
@@ -246,9 +307,9 @@ def extract_partition(zip_path, partition_name, output_img_path, tools_dir, supe
                 raise RuntimeError("Cannot extract %s from payload: %s" %
                                    (partition_name, "\n".join(failures)[-3000:]))
 
-            if super_image is not None:
+            if chosen:
                 local_super = tmp / "super.img"
-                stream_extract(archive, super_image, local_super)
+                materialize_super(archive, chosen, local_super)
                 unpacker = str(tools_dir / "py" / "lpunpack.py")
                 for name in candidates:
                     try:
