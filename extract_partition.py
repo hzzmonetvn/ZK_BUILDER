@@ -50,13 +50,17 @@ def super_candidates(archive):
     """
     matches = []
     for entry in archive.infolist():
-        if entry.is_dir() or not entry.filename.lower().endswith(".img"):
+        if entry.is_dir():
+            continue
+        lower_name = entry.filename.lower()
+        is_zstd = lower_name.endswith((".img.zst", ".img.zstd"))
+        if not lower_name.endswith(".img") and not is_zstd:
             continue
         name = Path(entry.filename).name.lower()
         with archive.open(entry) as image_stream:
-            header = image_stream.read(4100)
-        raw_lp = header[4096:4100] == LP_GEOMETRY_MAGIC
-        android_sparse = header[:4] == ANDROID_SPARSE_MAGIC
+            header = image_stream.read(4100 if not is_zstd else 4)
+        raw_lp = not is_zstd and header[4096:4100] == LP_GEOMETRY_MAGIC
+        android_sparse = not is_zstd and header[:4] == ANDROID_SPARSE_MAGIC
         named_super = "super" in name
         large = entry.file_size >= LARGE_IMAGE_BYTES
         sparse_large = android_sparse and entry.file_size >= SPARSE_IMAGE_BYTES
@@ -89,10 +93,50 @@ def split_super_groups(archive):
     return [members for _, _, members in sorted(result, key=lambda row: row[:2])]
 
 
+def decompress_zstd_member(archive, member, output):
+    """Stream ZIP member through trusted system zstd; never execute binaries from ROM ZIP."""
+    zstd = shutil.which("zstd")
+    if not zstd:
+        raise RuntimeError("zstd is required for super.img.zst (install zstd on runner)")
+    output = Path(output)
+    print("Decompressing %s using zstd..." % member.filename, file=sys.stderr, flush=True)
+    with archive.open(member) as source, output.open("wb") as target:
+        with subprocess.Popen([zstd, "-d", "-q", "-c"], stdin=subprocess.PIPE,
+                              stdout=target, stderr=subprocess.PIPE) as process:
+            try:
+                shutil.copyfileobj(source, process.stdin, length=1024 * 1024)
+            except BrokenPipeError:
+                pass  # Preserve decoder's actual error below.
+            finally:
+                process.stdin.close()
+            error = process.stderr.read().decode("utf-8", errors="replace")[-3000:]
+            exit_code = process.wait()
+    if exit_code or not output.is_file() or output.stat().st_size == 0:
+        output.unlink(missing_ok=True)
+        raise RuntimeError("zstd decompression failed for %s (exit %d): %s" %
+                           (member.filename, exit_code, error))
+
+
 def materialize_super(archive, members, output):
     """Reconstruct split sparse/raw images for LP metadata extraction."""
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
+    if len(members) == 1 and members[0].filename.lower().endswith((".img.zst", ".img.zstd")):
+        with tempfile.TemporaryDirectory(prefix="zstd_super_", dir=output.parent) as temp:
+            decoded = Path(temp) / "super.decoded.img"
+            decompress_zstd_member(archive, members[0], decoded)
+            with decoded.open("rb") as fp:
+                sparse_decoded = fp.read(4) == ANDROID_SPARSE_MAGIC
+            if sparse_decoded:
+                converter = shutil.which("simg2img")
+                if not converter:
+                    raise RuntimeError("simg2img is required for sparse super.img.zst")
+                run_tool([converter, str(decoded), str(output)])
+            else:
+                decoded.replace(output)
+        if not output.is_file() or not output.stat().st_size:
+            raise RuntimeError("super.img.zst decompressed to an empty image")
+        return
     with archive.open(members[0]) as fp:
         sparse = fp.read(4) == ANDROID_SPARSE_MAGIC
     if len(members) == 1 and not sparse:
@@ -174,7 +218,7 @@ def run_tool(command):
     return result.stdout + "\n" + result.stderr
 
 
-def describe_partitions(zip_path, tools_dir):
+def describe_partitions(zip_path, tools_dir, super_cache_dir=None):
     zip_path = Path(zip_path).resolve()
     tools_dir = Path(tools_dir).resolve()
     with zipfile.ZipFile(zip_path) as archive:
@@ -198,9 +242,20 @@ def describe_partitions(zip_path, tools_dir):
             names_in_zip = [member.filename for member in members]
             print("Checking super candidate: %s" % ", ".join(names_in_zip), file=sys.stderr)
             try:
-                with tempfile.TemporaryDirectory(prefix="rom_super_", dir=zip_path.parent) as tmp:
+                # Preserve large compressed super once for extraction of all partitions.
+                reuse = (super_cache_dir is not None and
+                         len(members) == 1 and
+                         members[0].filename.lower().endswith((".img.zst", ".img.zstd")))
+                if reuse:
+                    cache = Path(super_cache_dir)
+                    cache.mkdir(parents=True, exist_ok=True)
+                    context = contextlib.nullcontext(cache)
+                else:
+                    context = tempfile.TemporaryDirectory(prefix="rom_super_", dir=zip_path.parent)
+                with context as tmp:
                     local = Path(tmp) / "super.img"
-                    materialize_super(archive, members, local)
+                    if not local.is_file():
+                        materialize_super(archive, members, local)
                     unpacker = tools_dir / "py" / "lpunpack.py"
                     output = run_tool([sys.executable, str(unpacker), "--info",
                                        "--format", "json", str(local)])
@@ -212,6 +267,8 @@ def describe_partitions(zip_path, tools_dir):
                         result["super_member"] = members[0].filename
                     else:
                         result["super_members"] = names_in_zip
+                    if reuse:
+                        result["prepared_super_path"] = str(local.resolve())
                     return result
             except (RuntimeError, OSError, ValueError) as error:
                 errors.append("%s: %s" % (", ".join(names_in_zip), str(error)[-800:]))
@@ -250,12 +307,39 @@ def valid_partition(name):
     return name
 
 
-def extract_partition(zip_path, partition_name, output_img_path, tools_dir, super_member=None, super_members=None):
+def extract_from_cached_super(super_path, partition_name, output_img_path, tools_dir):
+    """Unpack one logical partition without re-decompressing super.img.zst."""
+    super_path = Path(super_path)
+    if not super_path.is_file() or super_path.stat().st_size == 0:
+        raise RuntimeError("Cached super image is absent or empty: %s" % super_path)
+    with tempfile.TemporaryDirectory(prefix="super_partition_",
+                                     dir=Path(output_img_path).parent) as tmp:
+        result_dir = Path(tmp)
+        failures = []
+        unpacker = str(Path(tools_dir) / "py" / "lpunpack.py")
+        for name in (partition_name, partition_name + "_a", partition_name + "_b"):
+            try:
+                run_tool([sys.executable, unpacker, "-p", name,
+                          str(super_path), str(result_dir)])
+                image = result_dir / (name + ".img")
+                if image.is_file() and image.stat().st_size:
+                    shutil.move(str(image), str(output_img_path))
+                    return
+            except RuntimeError as exc:
+                failures.append(str(exc))
+        raise RuntimeError("Cannot extract %s from cached super: %s" %
+                           (partition_name, "\n".join(failures)[-3000:]))
+
+
+def extract_partition(zip_path, partition_name, output_img_path, tools_dir, super_member=None, super_members=None, prepared_super_path=None):
     partition_name = valid_partition(partition_name)
     zip_path = Path(zip_path).resolve()
     output_img_path = Path(output_img_path).resolve()
     tools_dir = Path(tools_dir).resolve()
     output_img_path.parent.mkdir(parents=True, exist_ok=True)
+    if prepared_super_path:
+        extract_from_cached_super(prepared_super_path, partition_name, output_img_path, tools_dir)
+        return
     with zipfile.ZipFile(zip_path) as archive:
         direct, payload, super_image = find_entries(archive, partition_name)
         if super_member or super_members:

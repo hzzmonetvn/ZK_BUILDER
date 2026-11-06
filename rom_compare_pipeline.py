@@ -74,14 +74,20 @@ def unpack_image(image, target_dir, erofs_tool):
 
 
 def run(args):
+    # Keep a verified super.img.zst extracted once throughout the comparison.
+    with tempfile.TemporaryDirectory(prefix="compare_super_cache_", dir=Path.cwd()) as cache:
+        return run_with_cache(args, Path(cache))
+
+
+def run_with_cache(args, super_cache):
     tools = Path(args.tools).resolve()
     zip1, zip2 = Path(args.rom1).resolve(), Path(args.rom2).resolve()
     reports = [Path(args.report).resolve(), Path(args.full_report).resolve()]
     for report in reports:
         if not report.is_file():
             report.write_text("# ROM Comparison Report\n\n", encoding="utf-8")
-    d1 = describe_partitions(zip1, tools)
-    d2 = describe_partitions(zip2, tools)
+    d1 = describe_partitions(zip1, tools, super_cache_dir=super_cache / "rom1")
+    d2 = describe_partitions(zip2, tools, super_cache_dir=super_cache / "rom2")
     print("ROM 1 partition source=%s: %s" % (d1["source"], ",".join(d1["partitions"])), flush=True)
     print("ROM 2 partition source=%s: %s" % (d2["source"], ",".join(d2["partitions"])), flush=True)
     if args.partitions.strip():
@@ -124,7 +130,8 @@ def run(args):
                     metadata = d1 if idx == 1 else d2
                     extract_partition(rom, part, image, tools,
                                       super_member=metadata.get("super_member"),
-                                      super_members=metadata.get("super_members"))
+                                      super_members=metadata.get("super_members"),
+                                      prepared_super_path=metadata.get("prepared_super_path"))
                     kind = unpack_image(image, destination, tools / "extract.erofs")
                     print("ROM %d: %s extracted as %s" % (idx, part, kind), flush=True)
                     image.unlink(missing_ok=True)

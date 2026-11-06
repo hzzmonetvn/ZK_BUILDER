@@ -1,5 +1,7 @@
 """Regression tests for ROM comparison metadata and extraction."""
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -82,6 +84,82 @@ class PartitionDetectionTests(unittest.TestCase):
             self.assertEqual(result["source"], "super")
             self.assertEqual(result["super_member"], "images/P-nuwa-release.img")
             self.assertEqual(result["partitions"], ["system", "vendor"])
+
+    @unittest.skipUnless(shutil.which("zstd"), "requires the system zstd tool")
+    def test_real_zstd_streaming_and_super_detection(self):
+        # A real compressed ZIP member, not a mocked decompression result.
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            raw = bytearray(8192)
+            raw[4096:4100] = extract.LP_GEOMETRY_MAGIC
+            compressed = subprocess.run(["zstd", "-q", "-c"], input=bytes(raw),
+                                        stdout=subprocess.PIPE, check=True).stdout
+            with zipfile.ZipFile(rom, "w") as archive:
+                archive.writestr("super.img.zst", compressed)
+                archive.writestr("images/boot.img", b"boot")
+            with mock.patch.object(extract, "run_tool",
+                                   return_value='{"partitions":[{"name":"system_a"},{"name":"vendor_a"}]}'):
+                data = extract.describe_partitions(rom, tmp)
+            self.assertEqual(data["source"], "super")
+            self.assertEqual(data["super_member"], "super.img.zst")
+            self.assertEqual(data["partitions"], ["system", "vendor"])
+
+    @unittest.skipUnless(shutil.which("zstd"), "requires the system zstd tool")
+    def test_zstd_super_is_decompressed_for_partition_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            destination = Path(tmp) / "system.img"
+            compressed = subprocess.run(["zstd", "-q", "-c"], input=b"superdata",
+                                        stdout=subprocess.PIPE, check=True).stdout
+            with zipfile.ZipFile(rom, "w") as archive:
+                archive.writestr("super.img.zst", compressed)
+            def fake_lpunpack(cmd):
+                self.assertEqual(Path(cmd[-2]).read_bytes(), b"superdata")
+                target = Path(cmd[-1])
+                target.mkdir(exist_ok=True)
+                (target / "system_a.img").write_bytes(b"extracted")
+                return ""
+            with mock.patch.object(extract, "run_tool", side_effect=fake_lpunpack):
+                extract.extract_partition(rom, "system", destination, tmp,
+                                          super_member="super.img.zst")
+            self.assertEqual(destination.read_bytes(), b"extracted")
+
+    @unittest.skipUnless(shutil.which("zstd"), "requires the system zstd tool")
+    def test_cached_zstd_super_is_reused_without_decompression(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            cached = Path(tmp) / "cache"
+            compressed = subprocess.run(["zstd", "-q", "-c"], input=b"superdata",
+                                        stdout=subprocess.PIPE, check=True).stdout
+            with zipfile.ZipFile(rom, "w") as archive:
+                archive.writestr("super.img.zst", compressed)
+            with mock.patch.object(extract, "run_tool",
+                                   return_value='{"partitions":[{"name":"system_a"}]}'):
+                metadata = extract.describe_partitions(rom, tmp, super_cache_dir=cached)
+            self.assertEqual(Path(metadata["prepared_super_path"]).read_bytes(), b"superdata")
+            destination = Path(tmp) / "system.img"
+            def fake_lpunpack(cmd):
+                self.assertEqual(Path(cmd[-2]).read_bytes(), b"superdata")
+                output = Path(cmd[-1])
+                (output / "system_a.img").write_bytes(b"from cached super")
+                return ""
+            with mock.patch.object(extract, "decompress_zstd_member") as decompress_again, \
+                 mock.patch.object(extract, "run_tool", side_effect=fake_lpunpack):
+                extract.extract_partition(rom, "system", destination, tmp,
+                                          prepared_super_path=metadata["prepared_super_path"])
+                decompress_again.assert_not_called()
+            self.assertEqual(destination.read_bytes(), b"from cached super")
+
+    def test_zstd_requires_system_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            with zipfile.ZipFile(rom, "w") as archive:
+                archive.writestr("super.img.zst", b"not-really-zstd")
+            with zipfile.ZipFile(rom) as archive, \
+                 mock.patch.object(extract.shutil, "which", return_value=None):
+                with self.assertRaisesRegex(RuntimeError, "zstd is required"):
+                    extract.materialize_super(archive, [archive.getinfo("super.img.zst")],
+                                              Path(tmp) / "super.img")
 
     def test_sparse_renamed_super_is_metadata_verified(self):
         with tempfile.TemporaryDirectory() as tmp:

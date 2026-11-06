@@ -16,6 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Install zstd for compressed-super regression tests
+        run: |
+          if ! command -v zstd >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq zstd
+          fi
       - name: Test Python syntax
         run: python3 -m compileall -q extract_partition.py rom_compare_pipeline.py compare_roms.py tests
       - name: Run regression tests
