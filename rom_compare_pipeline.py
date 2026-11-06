@@ -85,27 +85,33 @@ def run(args):
     print("ROM 1 partition source=%s: %s" % (d1["source"], ",".join(d1["partitions"])), flush=True)
     print("ROM 2 partition source=%s: %s" % (d2["source"], ",".join(d2["partitions"])), flush=True)
     if args.partitions.strip():
-        parts = sorted(set(valid_partition(part.strip()) for part in args.partitions.split(",") if part.strip()))
-        if not parts:
+        requested = sorted(set(valid_partition(part.strip())
+                               for part in args.partitions.split(",") if part.strip()))
+        if not requested:
             raise ValueError("No partition names supplied")
     else:
-        parts = select_auto_partitions(d1, d2)
-    print("Filesystem partitions to compare: " + ", ".join(parts), flush=True)
+        requested = select_auto_partitions(d1, d2)
+
+    # Missing partitions are expected when comparing OTA payloads and modded ROMs.
+    # Compare the intersection only; never describe an unexamined partition as compared.
+    available1, available2 = set(d1["partitions"]), set(d2["partitions"])
+    parts = [name for name in requested if name in available1 and name in available2]
+    skipped = [name for name in requested if name not in available1 or name not in available2]
+    print("Shared partitions to compare: " + (", ".join(parts) if parts else "(none)"), flush=True)
+    if skipped:
+        print("SKIPPED (%d): not present in both ROMs: %s" %
+              (len(skipped), ", ".join(skipped)), flush=True)
+        # Keep a concise audit trail instead of a separate empty section per partition.
+        for report in reports:
+            with open(report, "a", encoding="utf-8") as f:
+                f.write("## Bỏ qua phân vùng không có trong cả hai ROM\n\n")
+                f.write("Đã bỏ qua **%d** phân vùng không tồn tại đồng thời trong hai ROM.\n\n" % len(skipped))
+                f.write("Danh sách: `%s`\n\n---\n\n" % ", ".join(skipped))
     Path(args.diff_out).mkdir(parents=True, exist_ok=True)
     failures = []
+    compared = 0
     for part in parts:
         print(">>> Comparing partition: %s" % part, flush=True)
-        present1, present2 = part in d1["partitions"], part in d2["partitions"]
-        if not present1 or not present2:
-            if not present1 and not present2:
-                error = "Partition missing in both ROMs: " + part
-                record(reports, part, "**ERROR:** " + error)
-                failures.append(error)
-            else:
-                record(reports, part,
-                       "**Changed partition set:** ROM 1 = %s, ROM 2 = %s. Comparison skipped." %
-                       ("present" if present1 else "absent", "present" if present2 else "absent"))
-            continue
         try:
             # Extract one ROM at a time to avoid retaining two large raw super images.
             with tempfile.TemporaryDirectory(prefix="compare_" + part + "_", dir=Path.cwd()) as workspace:
@@ -126,6 +132,7 @@ def run(args):
                          "--partition", part, "--output", str(reports[0]),
                          "--output-full", str(reports[1]), "--diff-out", str(Path(args.diff_out).resolve())],
                         "Compare partition " + part)
+                compared += 1
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as e:
             error = "%s: %s" % (part, e)
             failures.append(error)
@@ -137,7 +144,18 @@ def run(args):
         print("%d partition(s) failed:\n%s" % (len(failures), "\n".join(failures)),
               file=sys.stderr, flush=True)
         return 1
-    print("All requested partitions processed successfully.", flush=True)
+    if not compared:
+        message = ("No shared filesystem partitions were compared. "
+                   "All requested partitions were skipped; verify the second ROM "
+                   "contains system/vendor/product images or a super.img.")
+        print("NO COMPARISON: " + message, flush=True)
+        for report in reports:
+            with open(report, "a", encoding="utf-8") as f:
+                f.write("## Không có dữ liệu để so sánh\n\n" + message + "\n\n")
+        # Intentional skip is not a processing error; don't call it a successful comparison.
+        return 0
+    print("Compared %d partition(s) successfully; skipped %d missing." %
+          (compared, len(skipped)), flush=True)
     return 0
 
 

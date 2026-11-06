@@ -99,5 +99,45 @@ class PipelineTests(unittest.TestCase):
                 self.assertIn("extraction failed", p.read_text())
 
 
+    def test_missing_partitions_are_skipped_without_fake_comparison(self):
+        from argparse import Namespace
+        from contextlib import redirect_stdout
+        import io
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            args = Namespace(rom1=str(base / "rom1.zip"), rom2=str(base / "rom2.zip"),
+                             tools=str(base), partitions="", report=str(base / "summary.md"),
+                             full_report=str(base / "full.md"), diff_out=str(base / "diff"))
+            rom1 = {"source": "payload", "partitions": ["system", "product"]}
+            rom2 = {"source": "images", "partitions": ["cust", "boot"]}
+            output = io.StringIO()
+            with mock.patch.object(pipeline, "describe_partitions", side_effect=[rom1, rom2]), \
+                 mock.patch.object(pipeline, "extract_partition") as extractor, \
+                 redirect_stdout(output):
+                self.assertEqual(pipeline.run(args), 0)
+            extractor.assert_not_called()
+            self.assertIn("NO COMPARISON:", output.getvalue())
+            self.assertIn("Đã bỏ qua **3**", (base / "summary.md").read_text())
+            self.assertIn("Không có dữ liệu để so sánh", (base / "full.md").read_text())
+
+    def test_only_shared_partition_is_processed(self):
+        from argparse import Namespace
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            args = Namespace(rom1=str(base / "rom1.zip"), rom2=str(base / "rom2.zip"),
+                             tools=str(base), partitions="", report=str(base / "summary.md"),
+                             full_report=str(base / "full.md"), diff_out=str(base / "diff"))
+            rom1 = {"source": "payload", "partitions": ["system", "vendor"]}
+            rom2 = {"source": "images", "partitions": ["vendor", "cust"]}
+            with mock.patch.object(pipeline, "describe_partitions", side_effect=[rom1, rom2]), \
+                 mock.patch.object(pipeline, "extract_partition") as extractor, \
+                 mock.patch.object(pipeline, "unpack_image", return_value="erofs"), \
+                 mock.patch.object(pipeline, "command", return_value=("", "")) as compare:
+                self.assertEqual(pipeline.run(args), 0)
+            self.assertEqual(extractor.call_count, 2)
+            self.assertEqual(compare.call_count, 1)
+            self.assertIn("Đã bỏ qua **2**", (base / "full.md").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
