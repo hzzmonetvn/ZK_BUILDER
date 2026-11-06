@@ -121,7 +121,9 @@ def run(args):
                     image = workspace / ("rom%d.img" % idx)
                     destination = workspace / ("rom%d" % idx)
                     print("Extracting ROM %d: %s" % (idx, part), flush=True)
-                    extract_partition(rom, part, image, tools)
+                    metadata = d1 if idx == 1 else d2
+                    extract_partition(rom, part, image, tools,
+                                      super_member=metadata.get("super_member"))
                     kind = unpack_image(image, destination, tools / "extract.erofs")
                     print("ROM %d: %s extracted as %s" % (idx, part, kind), flush=True)
                     image.unlink(missing_ok=True)

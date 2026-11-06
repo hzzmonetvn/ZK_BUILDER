@@ -66,6 +66,62 @@ class PartitionDetectionTests(unittest.TestCase):
                 found = extract.describe_partitions(rom, tmp)
             self.assertEqual(found, {"source": "super", "partitions": ["system"]})
 
+
+    def test_renamed_super_img_recognized_by_lp_geometry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            data = bytearray(8192)
+            data[4096:4100] = extract.LP_GEOMETRY_MAGIC
+            with zipfile.ZipFile(rom, "w") as z:
+                z.writestr("images/P-nuwa-release.img", data)
+                z.writestr("boot.img", b"boot")
+            with mock.patch.object(extract, "run_tool",
+                                   return_value='{"partitions":[{"name":"system_a"},{"name":"vendor_a"}]}'):
+                result = extract.describe_partitions(rom, tmp)
+            self.assertEqual(result["source"], "super")
+            self.assertEqual(result["super_member"], "images/P-nuwa-release.img")
+            self.assertEqual(result["partitions"], ["system", "vendor"])
+
+    def test_sparse_renamed_super_is_metadata_verified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            with zipfile.ZipFile(rom, "w") as z:
+                z.writestr("huge_unknown.img", extract.ANDROID_SPARSE_MAGIC + b"\0" * 100)
+            with mock.patch.object(extract, "SPARSE_IMAGE_BYTES", 64), \
+                 mock.patch.object(extract, "run_tool",
+                                   return_value='{"partitions":[{"name":"product_a"}]}'):
+                result = extract.describe_partitions(rom, tmp)
+            self.assertEqual(result["super_member"], "huge_unknown.img")
+            self.assertEqual(result["partitions"], ["product"])
+
+    def test_unreadable_large_super_is_not_silently_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            data = bytearray(8192)
+            data[4096:4100] = extract.LP_GEOMETRY_MAGIC
+            with zipfile.ZipFile(rom, "w") as z:
+                z.writestr("rom-giant.img", data)
+                z.writestr("boot.img", b"boot")
+            with mock.patch.object(extract, "run_tool", side_effect=RuntimeError("invalid metadata")):
+                with self.assertRaisesRegex(RuntimeError, "none contained readable super"):
+                    extract.describe_partitions(rom, tmp)
+
+    def test_selected_super_member_is_used_for_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rom = Path(tmp) / "rom.zip"
+            destination = Path(tmp) / "out" / "system.img"
+            with zipfile.ZipFile(rom, "w") as z:
+                z.writestr("renamed-large.img", b"superdata")
+            def unpack(cmd):
+                output_dir = Path(cmd[-1])
+                output_dir.mkdir(exist_ok=True)
+                (output_dir / "system_a.img").write_bytes(b"partitiondata")
+                return ""
+            with mock.patch.object(extract, "run_tool", side_effect=unpack):
+                extract.extract_partition(rom, "system", destination, tmp,
+                                          super_member="renamed-large.img")
+            self.assertEqual(destination.read_bytes(), b"partitiondata")
+
     def test_detect_zip_direct_partitions(self):
         with tempfile.TemporaryDirectory() as tmp:
             rom = Path(tmp) / "rom.zip"
